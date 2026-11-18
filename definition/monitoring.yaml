@@ -1,0 +1,3 @@
+componentTypes:
+  neo4j:
+    metrics: Native

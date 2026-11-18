@@ -1,0 +1,93 @@
+config:
+  components:
+    engine:
+      defaults:
+        replicas: 1
+      supportedFields:
+        required: [storage]
+        properties:
+          version: {}
+          image: {}
+          storage: {}
+          resources: {}
+          replicas: {minimum: 1, maximum: 1}
+          schedulingPolicy:
+            properties:
+              affinity: {}
+              topologySpreadConstraints: {}
+          service: {}
+ui:
+  sections:
+    databaseVersion:
+      label: Database
+      components:
+        version:
+          uiType: select
+          path: spec.version
+          fieldParams:
+            label: Database version
+            optionsPath: spec.versions
+            optionsPathConfig: {labelPath: name, valuePath: name}
+          validation: {required: true}
+        edition:
+          uiType: select
+          path: spec.parameters.edition
+          fieldParams:
+            label: Edition
+            defaultValue: community
+            options:
+              - {label: Community, value: community}
+              - {label: Enterprise, value: enterprise}
+        licenseAcceptance:
+          uiType: select
+          path: spec.parameters.licenseAcceptance
+          fieldParams:
+            label: Enterprise license
+            helperText: Required when Enterprise is selected.
+            options:
+              - {label: Production, value: "yes"}
+              - {label: Evaluation, value: eval}
+      componentsOrder: [version, edition, licenseAcceptance]
+    resources:
+      label: Resources
+      components:
+        cpu:
+          uiType: number
+          path: spec.components.engine.resources.limits.cpu
+          fieldParams: {label: CPU, defaultValue: 1, step: 0.5}
+          validation: {required: true, min: 0.5}
+        memory:
+          uiType: number
+          path: spec.components.engine.resources.limits.memory
+          fieldParams: {label: Memory, defaultValue: 2, badge: Gi, badgeToApi: true}
+          validation: {required: true, min: 2}
+        disk:
+          uiType: number
+          path: spec.components.engine.storage.size
+          fieldParams: {label: Disk, defaultValue: 10, badge: Gi, badgeToApi: true}
+          validation: {required: true, min: 1, int: true}
+        storageClass:
+          uiType: select
+          path: spec.components.engine.storage.storageClass
+          fieldParams: {label: Storage class}
+          dataSource: {provider: storageClasses}
+      componentsOrder: [cpu, memory, disk, storageClass]
+    advanced:
+      label: Advanced configuration
+      components:
+        externalAccess:
+          uiType: select
+          path: spec.components.engine.service.serviceType
+          fieldParams:
+            label: External access
+            defaultValue: ClusterIP
+            options:
+              - {label: ClusterIP, value: ClusterIP}
+              - {label: LoadBalancer, value: LoadBalancer}
+              - {label: NodePort, value: NodePort}
+        configuration:
+          uiType: text
+          path: spec.components.engine.parameters.configuration
+          fieldParams: {label: neo4j.conf, multiline: true}
+      componentsOrder: [externalAccess, configuration]
+  sectionsOrder: [databaseVersion, resources, advanced]

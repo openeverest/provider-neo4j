@@ -1,0 +1,162 @@
+package provider
+
+import (
+	"context"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"testing"
+
+	neo4jv1 "github.com/neo4j/neo4j-kubernetes-operator/src/api/v1"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/yaml"
+
+	commonv1alpha1 "github.com/openeverest/openeverest/v2/api/common/v1alpha1"
+	corev1alpha1 "github.com/openeverest/openeverest/v2/api/core/v1alpha1"
+	monitoringv1alpha1 "github.com/openeverest/openeverest/v2/api/monitoring/v1alpha1"
+	"github.com/openeverest/openeverest/v2/provider-runtime/controller"
+
+	"github.com/openeverest/provider-neo4j/internal/common"
+)
+
+func rawExtension(t *testing.T, value any) *runtime.RawExtension {
+	t.Helper()
+	data, err := json.Marshal(value)
+	require.NoError(t, err)
+	return &runtime.RawExtension{Raw: data}
+}
+
+func providerSpecFixture(t *testing.T) *corev1alpha1.Provider {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Clean("../../charts/provider-neo4j/generated/provider-spec.yaml"))
+	require.NoError(t, err)
+	var wrapper struct {
+		Spec corev1alpha1.ProviderSpec `json:"spec"`
+	}
+	require.NoError(t, yaml.Unmarshal(data, &wrapper))
+	return &corev1alpha1.Provider{
+		ObjectMeta: metav1.ObjectMeta{Name: common.ProviderName},
+		Spec:       wrapper.Spec,
+	}
+}
+
+func testContext(t *testing.T, instance *corev1alpha1.Instance) *controller.Context {
+	t.Helper()
+	scheme := runtime.NewScheme()
+	require.NoError(t, corev1.AddToScheme(scheme))
+	require.NoError(t, corev1alpha1.AddToScheme(scheme))
+	require.NoError(t, monitoringv1alpha1.AddToScheme(scheme))
+	require.NoError(t, neo4jv1.AddToScheme(scheme))
+	cl := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(providerSpecFixture(t), instance).
+		Build()
+	return controller.NewContext(context.Background(), cl, instance, common.ProviderName)
+}
+
+func validEngine() corev1alpha1.ComponentSpec {
+	replicas := int32(3)
+	return corev1alpha1.ComponentSpec{
+		Replicas: &replicas,
+		Storage:  &corev1alpha1.Storage{Size: resource.MustParse("10Gi")},
+		Resources: &corev1.ResourceRequirements{
+			Limits: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("1"),
+				corev1.ResourceMemory: resource.MustParse("2Gi"),
+			},
+		},
+	}
+}
+
+func TestBuildNeo4jEnterpriseCluster(t *testing.T) {
+	t.Parallel()
+	analyticsReplicas := int32(2)
+	readReplicas := int32(1)
+	instance := &corev1alpha1.Instance{
+		ObjectMeta: metav1.ObjectMeta{Name: "graph", Namespace: "default", UID: "graph-uid"},
+		Spec: corev1alpha1.InstanceSpec{
+			ProviderRef: commonv1alpha1.ObjectRef{Name: common.ProviderName},
+			Topology:    &corev1alpha1.TopologySpec{Type: common.TopologyCluster},
+			Version:     "2026.07.1",
+			Parameters: rawExtension(t, map[string]any{
+				"edition":           "enterprise",
+				"licenseAcceptance": "yes",
+			}),
+			Components: map[string]corev1alpha1.ComponentSpec{
+				common.ComponentEngine: validEngine(),
+				common.ComponentAnalytics: {
+					Replicas: &analyticsReplicas,
+				},
+				common.ComponentRead: {
+					Replicas: &readReplicas,
+				},
+			},
+		},
+	}
+	c := testContext(t, instance)
+
+	got, err := buildNeo4j(c)
+	require.NoError(t, err)
+	assert.Equal(t, neo4jv1.EditionEnterprise, got.Spec.Edition)
+	require.NotNil(t, got.Spec.License)
+	assert.Equal(t, neo4jv1.LicenseAcceptYes, got.Spec.License.Accept)
+	assert.Equal(t, neo4jv1.TopologyModeCluster, got.Spec.Topology.Mode)
+	assert.Equal(t, int32(3), got.Spec.Topology.Primaries.Members)
+	require.NotNil(t, got.Spec.Topology.Secondaries)
+	assert.Equal(t, int32(2), got.Spec.Topology.Secondaries.Analytics.Members)
+	assert.Equal(t, int32(1), got.Spec.Topology.Secondaries.Read.Members)
+	require.NotNil(t, got.Spec.Trust.CertManager)
+	assert.Equal(t, "graph-selfsigned", got.Spec.Trust.CertManager.IssuerRef.Name)
+	assert.Equal(t, "graph-cluster-tls", got.Spec.Trust.Certificates.Cluster.SecretName)
+	assert.NotNil(t, got.Spec.Trust.Certificates.Cluster.TrustedCerts)
+	assert.Nil(t, got.Spec.Trust.Reload)
+}
+
+func TestBuildNeo4jDefaultsToCommunityStandalone(t *testing.T) {
+	t.Parallel()
+	one := int32(1)
+	engine := validEngine()
+	engine.Replicas = &one
+	instance := &corev1alpha1.Instance{
+		ObjectMeta: metav1.ObjectMeta{Name: "graph", Namespace: "default", UID: "graph-uid"},
+		Spec: corev1alpha1.InstanceSpec{
+			ProviderRef: commonv1alpha1.ObjectRef{Name: common.ProviderName},
+			Topology:    &corev1alpha1.TopologySpec{Type: common.TopologyStandalone},
+			Version:     "2026.07.1",
+			Components:  map[string]corev1alpha1.ComponentSpec{common.ComponentEngine: engine},
+		},
+	}
+	got, err := buildNeo4j(testContext(t, instance))
+	require.NoError(t, err)
+	assert.Equal(t, neo4jv1.EditionCommunity, got.Spec.Edition)
+	assert.Nil(t, got.Spec.License)
+	assert.Equal(t, neo4jv1.TopologyModeStandalone, got.Spec.Topology.Mode)
+}
+
+func TestLicenseAndTopologyValidation(t *testing.T) {
+	t.Parallel()
+	instance := &corev1alpha1.Instance{
+		Spec: corev1alpha1.InstanceSpec{
+			Topology: &corev1alpha1.TopologySpec{Type: common.TopologyCluster},
+			Components: map[string]corev1alpha1.ComponentSpec{
+				common.ComponentEngine: validEngine(),
+			},
+		},
+	}
+	result := (&Provider{}).Validate(controller.ValidationInput{Instance: instance})
+	require.NotEmpty(t, result.Errors)
+	assert.Equal(t, "spec.parameters.edition", result.Errors[0].Field)
+
+	instance.Spec.Parameters = rawExtension(t, map[string]any{
+		"edition": "enterprise",
+	})
+	result = (&Provider{}).Validate(controller.ValidationInput{Instance: instance})
+	require.Len(t, result.Errors, 1)
+	assert.Equal(t, "spec.parameters.licenseAcceptance", result.Errors[0].Field)
+}

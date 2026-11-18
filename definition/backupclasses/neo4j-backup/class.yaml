@@ -1,0 +1,27 @@
+displayName: Neo4j Enterprise Backup
+description: |
+  Online backups and restores managed by the Neo4j Kubernetes Operator.
+  Neo4j backup and Prometheus metrics require Enterprise edition and explicit
+  license acceptance.
+supportsImport: false
+backupStorageClasses:
+  - name: s3
+    authModes: [AccessKey]
+    parametersSchema:
+      openAPIV3Schema:
+        properties:
+          implementation:
+            enum: [aws, minio, ceph, other]
+    tls:
+      customCA: None
+      insecureSkipVerify: None
+
+providerManaged:
+  supportsPITR: false
+  limits:
+    maxStorages: 1
+
+parametersSchema:
+  openAPIV3Schema: Neo4jBackupParameters
+restoreParametersSchema:
+  openAPIV3Schema: Neo4jRestoreParameters

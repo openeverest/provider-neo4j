@@ -1,0 +1,5 @@
+// Package providerneo4j contains the //go:generate directive
+// for generating the Provider CR spec for the Helm chart.
+package providerneo4j
+
+//go:generate go tool provider-sdk generate
