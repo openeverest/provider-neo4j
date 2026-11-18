@@ -47,9 +47,10 @@ helm upgrade --install provider-neo4j charts/provider-neo4j \
   --namespace everest-system --create-namespace
 ```
 
-The operator runs cluster-wide. If Instances can never run in the operator's own namespace,
-scope can be changed with the upstream `operator.watchNamespaces` / `operator.clusterWide`
-values.
+The operator watches `default` by default because the upstream `1.0.0` chart does not
+wire its cluster-wide value to `WATCH_ALL_NAMESPACES`. Set `operator.watchNamespaces`
+to the namespaces where OpenEverest Instances run. The operator namespace itself is
+deliberately excluded by the upstream controller.
 
 ## Usage
 

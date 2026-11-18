@@ -175,7 +175,8 @@ leaderElection:
   enabled: true
 
 operator:
-  clusterWide: true
-  watchNamespaces: []
+  clusterWide: false
+  watchNamespaces:
+    - default
   webhook:
     enabled: false

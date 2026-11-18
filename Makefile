@@ -186,7 +186,8 @@ deploy-provider-ci: helm-deps ## Deploy the provider via Helm for CI (IMG must a
 		--set image.repository=$(_IMG_REPO) \
 		--set image.tag=$(_IMG_TAG) \
 		--set image.pullPolicy=Never \
-		--set operator.clusterWide=true \
+		--set operator.clusterWide=false \
+		--set operator.watchNamespaces[0]=default \
 		--set operator.replicaCount=0 \
 		--wait --timeout 2m
 
