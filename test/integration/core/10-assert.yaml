@@ -1,0 +1,29 @@
+apiVersion: core.openeverest.io/v1alpha1
+kind: Instance
+metadata:
+  name: test-instance
+spec:
+  providerRef:
+    name: neo4j
+---
+apiVersion: neo4j.com/v1
+kind: Neo4j
+metadata:
+  name: test-instance
+spec:
+  edition: community
+  version: "2026.07.1"
+  topology:
+    mode: Standalone
+  resources:
+    limits:
+      cpu: "1"
+      memory: 2Gi
+  storage:
+    volumes:
+      data:
+        mode: Dynamic
+        dynamic:
+          size: 10Gi
+  trust:
+    enabled: false

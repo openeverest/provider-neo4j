@@ -1,0 +1,141 @@
+config:
+  components:
+    engine:
+      defaults:
+        replicas: 3
+      supportedFields:
+        required: [storage]
+        properties:
+          version: {}
+          image: {}
+          storage: {}
+          resources: {}
+          replicas: {minimum: 1}
+          schedulingPolicy:
+            properties:
+              affinity: {}
+              topologySpreadConstraints: {}
+          service: {}
+    analytics:
+      optional: true
+      supportedFields:
+        properties:
+          resources: {}
+          replicas: {minimum: 1}
+    read:
+      optional: true
+      supportedFields:
+        properties:
+          resources: {}
+          replicas: {minimum: 1}
+ui:
+  sections:
+    databaseVersion:
+      label: Database
+      components:
+        version:
+          uiType: select
+          path: spec.version
+          fieldParams:
+            label: Database version
+            optionsPath: spec.versions
+            optionsPathConfig: {labelPath: name, valuePath: name}
+          validation: {required: true}
+        edition:
+          uiType: select
+          path: spec.parameters.edition
+          fieldParams:
+            label: Edition
+            defaultValue: enterprise
+            options:
+              - {label: Enterprise, value: enterprise}
+          validation: {required: true}
+        licenseAcceptance:
+          uiType: select
+          path: spec.parameters.licenseAcceptance
+          fieldParams:
+            label: Enterprise license
+            options:
+              - {label: Production, value: "yes"}
+              - {label: Evaluation, value: eval}
+          validation: {required: true}
+      componentsOrder: [version, edition, licenseAcceptance]
+    resources:
+      label: Resources
+      components:
+        primaries:
+          uiType: number
+          path: spec.components.engine.replicas
+          fieldParams: {label: Primary members, defaultValue: 3}
+          validation:
+            required: true
+            min: 1
+            celExpressions:
+              - celExpr: spec.components.engine.replicas == 1 || spec.components.engine.replicas % 2 == 1
+                message: Primary members must be one or an odd number.
+        cpu:
+          uiType: number
+          path: spec.components.engine.resources.limits.cpu
+          fieldParams: {label: CPU per primary, defaultValue: 1, step: 0.5}
+          validation: {required: true, min: 0.5}
+        memory:
+          uiType: number
+          path: spec.components.engine.resources.limits.memory
+          fieldParams: {label: Memory per primary, defaultValue: 2, badge: Gi, badgeToApi: true}
+          validation: {required: true, min: 2}
+        disk:
+          uiType: number
+          path: spec.components.engine.storage.size
+          fieldParams: {label: Disk per member, defaultValue: 10, badge: Gi, badgeToApi: true}
+          validation: {required: true, min: 1, int: true}
+        storageClass:
+          uiType: select
+          path: spec.components.engine.storage.storageClass
+          fieldParams: {label: Storage class}
+          dataSource: {provider: storageClasses}
+      componentsOrder: [primaries, cpu, memory, disk, storageClass]
+    secondaryPools:
+      label: Secondary pools
+      components:
+        analytics:
+          uiType: group
+          groupType: toggleable
+          label: Analytics
+          components:
+            members:
+              uiType: number
+              path: spec.components.analytics.replicas
+              fieldParams: {label: Analytics members, defaultValue: 1}
+              validation: {required: true, min: 1, int: true}
+          componentsOrder: [members]
+        read:
+          uiType: group
+          groupType: toggleable
+          label: Read
+          components:
+            members:
+              uiType: number
+              path: spec.components.read.replicas
+              fieldParams: {label: Read members, defaultValue: 1}
+              validation: {required: true, min: 1, int: true}
+          componentsOrder: [members]
+      componentsOrder: [analytics, read]
+    advanced:
+      label: Advanced configuration
+      components:
+        externalAccess:
+          uiType: select
+          path: spec.components.engine.service.serviceType
+          fieldParams:
+            label: External access
+            defaultValue: ClusterIP
+            options:
+              - {label: ClusterIP, value: ClusterIP}
+              - {label: LoadBalancer, value: LoadBalancer}
+              - {label: NodePort, value: NodePort}
+        configuration:
+          uiType: text
+          path: spec.components.engine.parameters.configuration
+          fieldParams: {label: neo4j.conf, multiline: true}
+      componentsOrder: [externalAccess, configuration]
+  sectionsOrder: [databaseVersion, resources, secondaryPools, advanced]

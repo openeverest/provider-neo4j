@@ -1,0 +1,32 @@
+---
+# Dependabot opens a single PR when a new operator release is available. The
+# operator is usually pinned twice: as a Go module (its API types, in go.mod)
+# and as a Helm subchart (charts/provider-neo4j/Chart.yaml). Both entries
+# belong to one multi-ecosystem group so the bumps arrive together.
+version: 2
+
+multi-ecosystem-groups:
+  operator:
+    schedule:
+      interval: "daily"
+    labels:
+      - "dependencies"
+
+updates:
+  # The operator's module path and repository path differ. Keep its API module
+  # entry and replacement pinned together.
+  - package-ecosystem: "gomod"
+    directory: "/"
+    allow:
+      - dependency-name: "github.com/neo4j-partners/neo4j-kubernetes-operator"
+    patterns:
+      - "github.com/neo4j-partners/neo4j-kubernetes-operator"
+    multi-ecosystem-group: "operator"
+
+  # The chart's only dependencies are expected to be operator charts. Replace
+  # "*" with the chart name if you add unrelated subcharts.
+  - package-ecosystem: "helm"
+    directory: "/charts/provider-neo4j"
+    patterns:
+      - "*"
+    multi-ecosystem-group: "operator"
