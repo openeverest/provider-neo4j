@@ -183,6 +183,7 @@ deploy-provider-ci: helm-deps ## Deploy the provider via Helm for CI (IMG must a
 	helm upgrade --install provider-neo4j $(CHART_DIR) \
 		--create-namespace \
 		--namespace provider-system \
+		--skip-crds \
 		--set image.repository=$(_IMG_REPO) \
 		--set image.tag=$(_IMG_TAG) \
 		--set image.pullPolicy=Never \
