@@ -25,5 +25,4 @@ spec:
         mode: Dynamic
         dynamic:
           size: 10Gi
-  trust:
-    enabled: false
+  trust: {}
