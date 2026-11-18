@@ -60,7 +60,10 @@ spec:
       description: Neo4jBackupParameters configures one on-demand or scheduled backup.
       properties:
         databases:
-          description: Databases defaults to all databases.
+          description: |-
+            Databases defaults to the standard "neo4j" user database. The Neo4j
+            operator's restore-by-reference does not support wildcard backup
+            artifacts in v1.0.0.
           items:
             type: string
           type: array
@@ -86,7 +89,7 @@ spec:
       description: Neo4jRestoreParameters configures a restore.
       properties:
         databases:
-          description: Databases defaults to all user databases.
+          description: Databases defaults to the standard "neo4j" user database.
           items:
             type: string
           type: array

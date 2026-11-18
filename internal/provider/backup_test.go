@@ -52,4 +52,9 @@ func TestBackupRetentionRejectsEmptyDuration(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestDefaultBackupDatabaseIsRestorable(t *testing.T) {
+	t.Parallel()
+	assert.Equal(t, []string{"neo4j"}, defaultBackupDatabases(nil))
+}
+
 func int32Pointer(value int32) *int32 { return &value }

@@ -5,7 +5,9 @@ package backupclasses
 
 // Neo4jBackupParameters configures one on-demand or scheduled backup.
 type Neo4jBackupParameters struct {
-	// Databases defaults to all databases.
+	// Databases defaults to the standard "neo4j" user database. The Neo4j
+	// operator's restore-by-reference does not support wildcard backup
+	// artifacts in v1.0.0.
 	// +optional
 	Databases []string `json:"databases,omitempty"`
 
@@ -33,7 +35,7 @@ type Neo4jRestoreParameters struct {
 	// +optional
 	RestoreMetadata bool `json:"restoreMetadata,omitempty"`
 
-	// Databases defaults to all user databases.
+	// Databases defaults to the standard "neo4j" user database.
 	// +optional
 	Databases []string `json:"databases,omitempty"`
 }

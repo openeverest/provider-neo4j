@@ -43,6 +43,13 @@ const (
 	neo4jScheduleCredentialPrefix = "everest-neo4j-"
 )
 
+func defaultBackupDatabases(databases []string) []string {
+	if len(databases) == 0 {
+		return []string{"neo4j"}
+	}
+	return databases
+}
+
 func configureBackupStorage(c *controller.Context, spec *neo4jv1.Neo4jSpec) error {
 	backupCfg := c.Instance().Spec.Backup
 	if backupCfg == nil || !backupCfg.Enabled {
@@ -168,7 +175,7 @@ func reconcileBackupSchedules(c *controller.Context, neo4j *neo4jv1.Neo4j) error
 							Retention: retention,
 						},
 						BackupTemplate: neo4jv1.BackupTemplate{
-							Databases:   []string{"*"},
+							Databases:   []string{"neo4j"},
 							Destination: destination,
 						},
 					},
@@ -239,14 +246,12 @@ func (p *Provider) SyncBackup(c *controller.Context, backup *backupv1alpha1.Back
 		return controller.BackupExecutionStatus{}, fmt.Errorf("get Neo4jBackup: %w", err)
 	}
 	created := apierrors.IsNotFound(err)
-	params := neobackup.Neo4jBackupParameters{Type: "Full", Databases: []string{"*"}}
+	params := neobackup.Neo4jBackupParameters{Type: "Full", Databases: []string{"neo4j"}}
 	_ = decodeRaw(backup.Spec.Parameters, &params)
 	if params.Type == "" {
 		params.Type = "Full"
 	}
-	if len(params.Databases) == 0 {
-		params.Databases = []string{"*"}
-	}
+	params.Databases = defaultBackupDatabases(params.Databases)
 	if created {
 		destination, err := backupDestination(c, backup.Spec.StorageRef.Name)
 		if err != nil {
@@ -325,11 +330,9 @@ func (p *Provider) SyncRestore(c *controller.Context, restore *backupv1alpha1.Re
 	if source.Status.OperatorBackupRef != nil && source.Status.OperatorBackupRef.Name != "" {
 		name = source.Status.OperatorBackupRef.Name
 	}
-	params := neobackup.Neo4jRestoreParameters{Databases: []string{"*"}}
+	params := neobackup.Neo4jRestoreParameters{Databases: []string{"neo4j"}}
 	_ = decodeRaw(restore.Spec.Parameters, &params)
-	if len(params.Databases) == 0 {
-		params.Databases = []string{"*"}
-	}
+	params.Databases = defaultBackupDatabases(params.Databases)
 	desired := &neo4jv1.Neo4jRestore{
 		ObjectMeta: metav1.ObjectMeta{Name: restore.Name, Namespace: restore.Namespace},
 	}
