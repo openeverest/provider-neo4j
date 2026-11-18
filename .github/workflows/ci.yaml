@@ -91,7 +91,7 @@ jobs:
         run: helm dependency build charts/provider-neo4j
 
       - name: Lint Helm chart
-        run: helm lint charts/provider-neo4j
+        run: helm lint --namespace everest-system charts/provider-neo4j
 
   # Each integration suite runs as a separate job through the reusable
   # integration-test.yaml workflow. To add a suite, create a directory under

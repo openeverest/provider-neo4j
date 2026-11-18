@@ -115,6 +115,7 @@ func TestBuildNeo4jEnterpriseCluster(t *testing.T) {
 	assert.Equal(t, "graph-selfsigned", got.Spec.Trust.CertManager.IssuerRef.Name)
 	assert.Equal(t, "graph-cluster-tls", got.Spec.Trust.Certificates.Cluster.SecretName)
 	assert.NotNil(t, got.Spec.Trust.Certificates.Cluster.TrustedCerts)
+	assert.Nil(t, got.Spec.Trust.Reload)
 }
 
 func TestBuildNeo4jDefaultsToCommunityStandalone(t *testing.T) {

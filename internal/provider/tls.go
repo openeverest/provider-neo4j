@@ -117,7 +117,6 @@ func buildTLS(c *controller.Context) (*neo4jv1.TrustSpec, error) {
 
 	trust := &neo4jv1.TrustSpec{
 		Enabled: true,
-		Reload:  &neo4jv1.TrustReloadSpec{Enabled: true},
 		Certificates: &neo4jv1.TrustCertificatesSpec{
 			Bolt:  tlsPolicy(c, tls, "bolt"),
 			HTTPS: tlsPolicy(c, tls, "https"),
