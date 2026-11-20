@@ -27,6 +27,14 @@
     - create
     - patch
 - apiGroups:
+    - apps
+  resources:
+    - statefulsets
+  verbs:
+    - get
+    - list
+    - watch
+- apiGroups:
     - backup.openeverest.io
   resources:
     - backupclasses
