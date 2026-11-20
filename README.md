@@ -1,7 +1,8 @@
 # OpenEverest provider for Neo4j
 
 > [!WARNING]
-> Pre-alpha. Schemas and defaults may change without an upgrade path.
+> Alpha. Schemas and defaults may change without an upgrade path. Use the release built for
+> your OpenEverest version; see [Compatibility](#compatibility).
 
 [![CI](https://github.com/openeverest/provider-neo4j/actions/workflows/ci.yaml/badge.svg?branch=main)](https://github.com/openeverest/provider-neo4j/actions/workflows/ci.yaml)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
@@ -30,16 +31,35 @@ Neo4j Enterprise licensing is opt-in. Set `spec.parameters.edition: enterprise` 
 is the default and rejects cluster, backup, and Prometheus features. OpenEverest never supplies
 or bypasses a commercial Neo4j license.
 
+## Compatibility
+
+| provider-neo4j | OpenEverest | Neo4j Kubernetes Operator | Kubernetes |
+|---|---|---|---|
+| `0.1.x` | `2.0.0-alpha.1` | `1.0.x` | `1.34`+ |
+
+Each row names the exact OpenEverest version: SemVer ranks `2.0.0-dev.N` above
+`2.0.0-alpha.1`, so a range would also claim the developer previews, whose Instance status
+this provider does not write.
+
 ## Requirements
 
-- OpenEverest v2
+- OpenEverest `2.0.0-alpha.1`
 - Kubernetes 1.34 or newer (required by the pinned Neo4j operator)
 - cert-manager for the default TLS setup
 - A default StorageClass unless every Instance selects one explicitly
 
 ## Installation
 
-The provider chart bundles the Neo4j operator chart and the pinned operator CRDs:
+The provider chart bundles the Neo4j operator chart and the pinned operator CRDs. Install a
+release from GHCR:
+
+```bash
+helm upgrade --install provider-neo4j \
+  oci://ghcr.io/openeverest/charts/provider-neo4j --version 0.1.0 \
+  --namespace everest-system --create-namespace
+```
+
+Or from a checkout:
 
 ```bash
 helm dependency build charts/provider-neo4j
@@ -107,9 +127,27 @@ spec:
       replicas: 1
 ```
 
-When the operator marks the `Neo4j` resource Running, the provider writes connection details
-to the Secret referenced by `Instance.status.connectionSecretRef`. Its `ca.crt` entry is the CA
-for the generated or supplied TLS certificate.
+The UI takes CPU in cores, fractions included (`0.5`), and memory and disk in Gi, and writes
+them as Kubernetes quantity strings; a value it did not change keeps its stored form (for
+example `2048Mi`). Disk size cannot be decreased.
+
+## Status
+
+The provider reports what it observes and OpenEverest derives the Instance's phase
+(`Pending`, `Provisioned`, `Terminating`) and conditions from it:
+
+| Fact | How the provider determines it |
+|---|---|
+| Converged (`Ready`) | The operator reports `Ready` for the latest generation, runs `spec.version`, has no upgrade in flight, and every StatefulSet has rolled out. |
+| `Available` | Standalone: the server pod is ready. Cluster: the cluster is formed and a majority of primaries is ready. Unavailable during a restore or offline maintenance. |
+| `Upgrading` | The operator's rolling upgrade is in flight (`status.upgrade`). |
+| `StorageResizing` | The operator reports `StorageReady` with reason `StorageResizing`. |
+| `Restoring` | A `Restore` targeting the Instance, or the data-source seed, is running. |
+| Problems | The operator's `Error` condition (version refusals and storage template drift are terminal), failed TLS, storage, plugin or cluster-formation conditions, a failed upgrade, servers lost after being ready, and `spec.maintenance.offlineMode` set outside OpenEverest (terminal). |
+
+Once the Instance is available or converged, the provider writes connection details to the
+Secret referenced by `Instance.status.connectionSecretRef`. Its `ca.crt` entry is the CA for
+the generated or supplied TLS certificate.
 
 See [examples/](examples/) and the source-of-truth definitions in [definition/](definition/).
 
@@ -121,7 +159,8 @@ make test-unit
 make helm-lint
 ```
 
-Integration tests use Chainsaw:
+Integration tests use Chainsaw. `make install-crds` installs the OpenEverest CRDs of the core
+version pinned in `go.mod`; CI builds the OpenEverest controller from the same version:
 
 ```bash
 make install-crds
