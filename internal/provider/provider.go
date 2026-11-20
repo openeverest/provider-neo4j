@@ -2,7 +2,9 @@ package provider
 
 import (
 	"fmt"
+	"maps"
 	"net/url"
+	"slices"
 	"strings"
 
 	cmapi "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
@@ -66,6 +68,9 @@ func (p *Provider) Sync(c *controller.Context) error {
 		return fmt.Errorf("apply Neo4j: %w", err)
 	}
 	if err := reconcileBackupSchedules(c, neo4j); err != nil {
+		return err
+	}
+	if err := labelPods(c); err != nil {
 		return err
 	}
 	if c.Instance().Spec.DataSource != nil {
@@ -171,8 +176,8 @@ func (p *Provider) Cleanup(c *controller.Context) error {
 	return nil
 }
 
-// MonitoringSources exposes Neo4j's Enterprise Prometheus endpoint. The
-// operator labels each StatefulSet pod with neo4j.com/pool.
+// MonitoringSources exposes Neo4j's Enterprise Prometheus endpoint on every
+// pool's pods.
 func (p *Provider) MonitoringSources(c *controller.Context) (*corev1alpha1.MonitoringSources, error) {
 	live := &neo4jv1.Neo4j{}
 	if err := c.Get(live, c.Name()); err != nil {
@@ -187,25 +192,15 @@ func (p *Provider) MonitoringSources(c *controller.Context) (*corev1alpha1.Monit
 		!live.Spec.Features.Monitoring.Prometheus.Enabled {
 		return out, nil
 	}
-	pools := []struct{ component, pool string }{{common.ComponentEngine, "primary"}}
-	if live.Spec.Topology.Mode == neo4jv1.TopologyModeStandalone {
-		pools[0].pool = "server"
-	}
-	if live.Spec.Topology.Secondaries != nil {
-		if live.Spec.Topology.Secondaries.Analytics != nil {
-			pools = append(pools, struct{ component, pool string }{common.ComponentAnalytics, "analytics"})
-		}
-		if live.Spec.Topology.Secondaries.Read != nil {
-			pools = append(pools, struct{ component, pool string }{common.ComponentRead, "read"})
-		}
-	}
-	for _, pool := range pools {
+	components := slices.Sorted(maps.Keys(componentPools(c)))
+	for _, component := range components {
 		out.Metrics = append(out.Metrics, corev1alpha1.MetricsEndpoint{
-			Component: pool.component,
-			Kind:      "neo4j",
+			Component: component,
+			Kind:      common.ComponentTypeNeo4j,
+			// labelPods puts these labels on the pods of each pool.
 			PodSelector: map[string]string{
-				"app.kubernetes.io/instance": c.Name(),
-				"neo4j.com/pool":             pool.pool,
+				controller.InstanceLabel:  c.Name(),
+				controller.ComponentLabel: component,
 			},
 			Port:   intstr.FromString("tcp-prometheus"),
 			Path:   "/metrics",

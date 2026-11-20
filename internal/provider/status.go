@@ -28,6 +28,8 @@ import (
 const (
 	labelInstance = "app.kubernetes.io/instance"
 	labelPool     = "neo4j.com/pool"
+
+	memberPoolPrimary neo4jv1.MemberPool = "primary"
 )
 
 // Conditions and reasons the Neo4j operator writes on the Neo4j object.
@@ -396,6 +398,14 @@ func availability(o observation) (controller.Availability, string, string) {
 	var ready int32
 	if set := findSet(o.sets, neo4j.Name+"-primary"); set != nil {
 		ready = set.Status.ReadyReplicas
+	} else {
+		// The operator's member report stands in while the StatefulSet is not
+		// in the cache yet.
+		for _, member := range neo4j.Status.Members {
+			if member.Pool == memberPoolPrimary && member.PodReady {
+				ready++
+			}
+		}
 	}
 	if ready >= quorum {
 		return controller.Available, "", ""
@@ -410,6 +420,10 @@ func availability(o observation) (controller.Availability, string, string) {
 // withDesiredReplicas reports how many pods each component will have once
 // Neo4j runs what the Instance asks for, with the defaults Sync applies.
 func withDesiredReplicas(c *controller.Context, st controller.Status) controller.Status {
+	// The runtime reports the pods of the components PodLabels names.
+	for component := range componentPools(c) {
+		c.PodLabels(component)
+	}
 	if c.Instance().GetTopologyType() != common.TopologyCluster {
 		return st.WithDesiredReplicas(common.ComponentEngine, 1)
 	}

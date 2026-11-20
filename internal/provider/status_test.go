@@ -186,6 +186,22 @@ func TestObserve(t *testing.T) {
 			messagePart:     "1/3 servers ready",
 		},
 		{
+			name: "cluster without a cached StatefulSet reads the operator's member report",
+			in: func() observation {
+				o := cluster(0, nil)
+				o.sets = nil
+				o.neo4j.Status.Members = []neo4jv1.MemberStatus{
+					{Name: "db-primary-0", Pool: memberPoolPrimary, PodReady: true},
+					{Name: "db-primary-1", Pool: memberPoolPrimary, PodReady: true},
+					{Name: "db-primary-2", Pool: memberPoolPrimary},
+					{Name: "db-read-0", Pool: "read", PodReady: true},
+				}
+				return o
+			}(),
+			converged: true,
+			available: controller.Available,
+		},
+		{
 			name: "rolling version upgrade",
 			in: cluster(3, func(n *neo4jv1.Neo4j) {
 				n.Spec.Version = "2026.08.0"

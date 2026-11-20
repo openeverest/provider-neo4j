@@ -137,6 +137,7 @@ func TestBuildNeo4jDefaultsToCommunityStandalone(t *testing.T) {
 	assert.Equal(t, neo4jv1.EditionCommunity, got.Spec.Edition)
 	assert.Nil(t, got.Spec.License)
 	assert.Equal(t, neo4jv1.TopologyModeStandalone, got.Spec.Topology.Mode)
+	assert.Nil(t, got.Spec.Features, "no backup and no metrics render no features, not an empty object")
 }
 
 func TestLicenseAndTopologyValidation(t *testing.T) {
