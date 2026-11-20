@@ -1,0 +1,12 @@
+apiVersion: core.openeverest.io/v1alpha1
+kind: Provider
+metadata:
+  name: neo4j
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: provider-neo4j
+  namespace: provider-system
+status:
+  readyReplicas: 1

@@ -1,0 +1,12 @@
+apiVersion: core.openeverest.io/v1alpha1
+kind: Instance
+metadata:
+  name: itest-preset
+  annotations:
+    openeverest.io/cluster-instance-preset: neo4j-standalone
+spec:
+  version: "2026.07.1"
+status:
+  phase: Provisioned
+  (conditions[?type == 'Ready'].status | [0]): "True"
+  (conditions[?type == 'Available'].status | [0]): "True"

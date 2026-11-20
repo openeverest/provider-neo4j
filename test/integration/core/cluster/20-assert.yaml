@@ -1,0 +1,11 @@
+# Two of three primaries are gone: the cluster takes no writes.
+apiVersion: core.openeverest.io/v1alpha1
+kind: Instance
+metadata:
+  name: test-cluster
+status:
+  phase: Provisioned
+  (conditions[?type == 'Available']):
+    - status: "False"
+      reason: NoPrimaryQuorum
+  (conditions[?type == 'Ready'].status | [0]): "False"

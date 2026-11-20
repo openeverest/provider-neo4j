@@ -1,0 +1,19 @@
+# Once Neo4j serves, the provider publishes where Prometheus metrics are
+# served, for the user's own scraper.
+apiVersion: core.openeverest.io/v1alpha1
+kind: Instance
+metadata:
+  name: neo4j-metrics-policy
+status:
+  monitoring:
+    (destinations == null): true
+    sources:
+      metrics:
+        - component: engine
+          kind: neo4j
+          podSelector:
+            core.openeverest.io/instance: neo4j-metrics-policy
+            core.openeverest.io/component: engine
+          port: tcp-prometheus
+          path: /metrics
+          scheme: http

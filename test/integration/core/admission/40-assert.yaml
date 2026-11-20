@@ -1,0 +1,17 @@
+apiVersion: core.openeverest.io/v1alpha1
+kind: Instance
+metadata:
+  name: test-admission
+status:
+  (conditions[?type == 'Ready'] | [0].reason != 'ValidationFailed'): true
+---
+apiVersion: neo4j.com/v1
+kind: Neo4j
+metadata:
+  name: test-admission
+spec:
+  edition: enterprise
+  topology:
+    mode: Cluster
+    primaries:
+      members: 3

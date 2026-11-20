@@ -1,0 +1,9 @@
+apiVersion: core.openeverest.io/v1alpha1
+kind: ClusterInstancePreset
+metadata:
+  name: neo4j-standalone
+spec:
+  providerRef:
+    name: neo4j
+  topology:
+    type: standalone

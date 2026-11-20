@@ -1,0 +1,100 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/kyverno/chainsaw/main/.schemas/json/test-chainsaw-v1alpha1.json
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: presets
+spec:
+  description: |
+    The chart installs the standalone ClusterInstancePreset, and not the
+    cluster one, which needs a license acceptance. The preset is admitted as
+    an Instance spec as it is (server-side dry run, so the provider's admission
+    webhook checks it), and an Instance created from it renders Neo4j with TLS
+    and becomes Ready.
+  catch:
+    - script:
+        content: kubectl get clusterinstancepresets -o yaml; kubectl -n "$NAMESPACE" get instance,neo4j -o yaml
+    - podLogs:
+        namespace: provider-system
+        selector: app.kubernetes.io/name=provider-neo4j
+        tail: 100
+  steps:
+    - name: presets-installed
+      try:
+        - assert:
+            file: 00-assert.yaml
+        - error:
+            file: 00-error.yaml
+
+    - name: preset-admitted
+      try:
+        # chainsaw runs scripts with /bin/sh: POSIX sh only.
+        - script:
+            content: |
+              set -eu
+              kubectl get clusterinstancepreset neo4j-standalone -o json \
+                | jq --arg ns "$NAMESPACE" '{
+                    apiVersion: "core.openeverest.io/v1alpha1",
+                    kind: "Instance",
+                    metadata: {name: "itest-preset-dry-run", namespace: $ns},
+                    spec: .spec
+                  }' \
+                | kubectl apply --dry-run=server -f -
+
+    - name: create-from-preset
+      try:
+        - script:
+            content: |
+              set -eu
+              kubectl get clusterinstancepreset neo4j-standalone -o json \
+                | jq --arg ns "$NAMESPACE" '{
+                    apiVersion: "core.openeverest.io/v1alpha1",
+                    kind: "Instance",
+                    metadata: {
+                      name: "itest-preset",
+                      namespace: $ns,
+                      annotations: {"openeverest.io/cluster-instance-preset": "neo4j-standalone"}
+                    },
+                    spec: .spec
+                  }' \
+                | kubectl apply -f -
+        - assert:
+            file: 10-assert.yaml
+
+    # The Neo4j operator is scaled to 0: report what it writes for a ready
+    # standalone server.
+    - name: instance-ready
+      try:
+        - script:
+            content: |
+              kubectl -n $NAMESPACE create secret generic itest-preset-auth \
+                --from-literal=NEO4J_AUTH=neo4j/test-password
+              generation=$(kubectl -n $NAMESPACE get neo4j itest-preset -o jsonpath='{.metadata.generation}')
+              version=$(kubectl -n $NAMESPACE get neo4j itest-preset -o jsonpath='{.spec.version}')
+              now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+              kubectl -n $NAMESPACE patch neo4j itest-preset --subresource=status --type=merge -p "$(cat <<EOF
+              {"status": {
+                "phase": "Running",
+                "observedGeneration": ${generation},
+                "version": "${version}",
+                "serverSummary": {"servers": 1, "ready": 1},
+                "conditions": [{"type": "Ready", "status": "True", "reason": "AllMembersReady",
+                  "message": "1/1 servers ready", "observedGeneration": ${generation}, "lastTransitionTime": "${now}"}],
+                "credentials": {"secretName": "itest-preset-auth", "generated": true},
+                "endpoints": {"neo4j": "neo4j+s://itest-preset:7687"}
+              }}
+              EOF
+              )"
+        - assert:
+            file: 11-assert.yaml
+
+    - name: delete-instance
+      try:
+        - script:
+            content: kubectl -n $NAMESPACE delete instance itest-preset --wait=false
+        - wait:
+            apiVersion: core.openeverest.io/v1alpha1
+            kind: Instance
+            name: itest-preset
+            timeout: 2m
+            for:
+              deletion: {}

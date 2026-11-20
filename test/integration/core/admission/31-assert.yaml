@@ -1,0 +1,13 @@
+apiVersion: core.openeverest.io/v1alpha1
+kind: Instance
+metadata:
+  name: test-admission
+spec:
+  components:
+    engine:
+      storage:
+        size: 20Gi
+status:
+  (conditions[?type == 'Ready']):
+    - status: "False"
+      reason: ValidationFailed

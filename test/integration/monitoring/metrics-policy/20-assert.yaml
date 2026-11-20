@@ -1,0 +1,15 @@
+# Nothing requires metrics any more: Prometheus and its endpoint go.
+apiVersion: neo4j.com/v1
+kind: Neo4j
+metadata:
+  name: neo4j-metrics-policy
+spec:
+  (features.monitoring == null): true
+  (connectivity.listeners.metrics == null): true
+---
+apiVersion: core.openeverest.io/v1alpha1
+kind: Instance
+metadata:
+  name: neo4j-metrics-policy
+status:
+  (monitoring.sources.metrics == null): true
