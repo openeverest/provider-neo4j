@@ -1,6 +1,6 @@
 dependencies:
 - name: neo4j-operator
   repository: oci://ghcr.io/neo4j-partners/charts
-  version: 1.0.0
-digest: sha256:69a99a6e416718ff80a631bbb996fb9b1d565789d0785a9af8695752f5946123
-generated: "2026-11-18T15:37:13.551995247Z"
+  version: 1.1.0
+digest: sha256:b15221a45d149c902e8ace9f2e896582ca70de7d22f28842ca5f7d12e74e07f5
+generated: "2026-11-20T22:43:29.402416+03:00"

@@ -11,6 +11,7 @@ require (
 	github.com/stretchr/testify v1.12.1
 	k8s.io/api v0.37.2
 	k8s.io/apimachinery v0.37.2
+	k8s.io/utils v0.0.0-20260626114624-be93311217bd
 	sigs.k8s.io/controller-runtime v0.25.2
 	sigs.k8s.io/yaml v1.6.0
 )
@@ -133,7 +134,6 @@ require (
 	k8s.io/component-base v0.37.2 // indirect
 	k8s.io/klog/v2 v2.140.0 // indirect
 	k8s.io/kube-openapi v0.0.0-20260721132016-d427ff9ee9ad // indirect
-	k8s.io/utils v0.0.0-20260626114624-be93311217bd // indirect
 	sigs.k8s.io/controller-tools v0.23.0 // indirect
 	sigs.k8s.io/gateway-api v1.6.0 // indirect
 	sigs.k8s.io/json v0.0.0-20250730193827-2d320260d730 // indirect
@@ -148,4 +148,4 @@ tool github.com/openeverest/provider-sdk
 //
 // Then run: go mod tidy
 
-replace github.com/neo4j/neo4j-kubernetes-operator => github.com/neo4j-partners/neo4j-kubernetes-operator v1.0.1-0.20261112095804-a3582541dac1
+replace github.com/neo4j/neo4j-kubernetes-operator => github.com/neo4j-partners/neo4j-kubernetes-operator v1.1.0
