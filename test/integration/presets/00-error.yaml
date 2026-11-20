@@ -1,0 +1,6 @@
+# Cluster needs a license acceptance only the user can give, so its preset
+# ships disabled.
+apiVersion: core.openeverest.io/v1alpha1
+kind: ClusterInstancePreset
+metadata:
+  name: neo4j-cluster

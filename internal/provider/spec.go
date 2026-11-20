@@ -102,6 +102,10 @@ func buildNeo4j(c *controller.Context) (*neo4jv1.Neo4j, error) {
 		}
 		connectivity.Listeners.Metrics = int32Ptr(2004)
 	}
+	if features.Backup == nil && features.Monitoring == nil {
+		// An empty struct reaches the API server as null, which the CRD rejects.
+		features = nil
+	}
 
 	spec := neo4jv1.Neo4jSpec{
 		Edition:      neo4jv1.Edition(edition),

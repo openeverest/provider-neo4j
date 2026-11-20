@@ -16,5 +16,5 @@ maintainers:
 dependencies:
   - name: neo4j-operator
     alias: operator
-    version: "1.0.0"
+    version: "1.1.0"
     repository: oci://ghcr.io/neo4j-partners/charts

@@ -1,0 +1,22 @@
+apiVersion: core.openeverest.io/v1alpha1
+kind: Instance
+metadata:
+  name: example
+spec:
+  providerRef:
+    name: neo4j
+  topology:
+    type: standalone
+  version: 2026.07.1
+  components:
+    engine:
+      storage:
+        size: 10Gi
+      resources:
+        limits:
+          cpu: "1"
+          memory: 2Gi
+  monitoring:
+    sources:
+      metrics:
+        policy: Always

@@ -1,0 +1,26 @@
+apiVersion: core.openeverest.io/v1alpha1
+kind: Instance
+metadata:
+  name: test-cluster
+spec:
+  providerRef:
+    name: neo4j
+  topology:
+    type: cluster
+  version: "2026.07.1"
+  parameters:
+    edition: enterprise
+    licenseAcceptance: eval
+  components:
+    engine:
+      replicas: 3
+      resources:
+        limits:
+          cpu: "1"
+          memory: 2Gi
+      storage:
+        size: 10Gi
+    analytics:
+      replicas: 1
+    read:
+      replicas: 2

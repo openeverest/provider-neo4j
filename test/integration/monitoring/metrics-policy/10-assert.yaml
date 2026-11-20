@@ -1,0 +1,24 @@
+# Prometheus is on although the Instance has no destination.
+apiVersion: neo4j.com/v1
+kind: Neo4j
+metadata:
+  name: neo4j-metrics-policy
+spec:
+  features:
+    monitoring:
+      prometheus:
+        enabled: true
+  connectivity:
+    listeners:
+      metrics: 2004
+---
+# The CRD keeps the policy rather than pruning it.
+apiVersion: core.openeverest.io/v1alpha1
+kind: Instance
+metadata:
+  name: neo4j-metrics-policy
+spec:
+  monitoring:
+    sources:
+      metrics:
+        policy: Always

@@ -1,0 +1,19 @@
+apiVersion: neo4j.com/v1
+kind: Neo4j
+metadata:
+  name: test-cluster
+spec:
+  edition: enterprise
+  version: "2026.07.1"
+  license:
+    accept: eval
+  topology:
+    mode: Cluster
+    minimumMembers: 3
+    primaries:
+      members: 3
+    secondaries:
+      analytics:
+        members: 1
+      read:
+        members: 2

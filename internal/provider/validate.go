@@ -88,6 +88,10 @@ func validateEdition(in *corev1alpha1.Instance, edition definition.Edition, para
 		errs = append(errs, field.Forbidden(field.NewPath("spec", "backup", "enabled"),
 			"online backup is an Enterprise feature"))
 	}
+	if edition == definition.EditionCommunity && in.GetMetricsSourcePolicy() == corev1alpha1.MonitoringSourcePolicyAlways {
+		errs = append(errs, field.Forbidden(field.NewPath("spec", "monitoring", "sources", "metrics", "policy"),
+			"Prometheus metrics are an Enterprise feature"))
+	}
 	return errs
 }
 

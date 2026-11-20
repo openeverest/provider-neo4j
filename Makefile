@@ -6,9 +6,6 @@ $(LOCALBIN):
 # CONTAINER_TOOL defines the container tool to be used for building images.
 CONTAINER_TOOL ?= docker
 
-# OpenEverest branch to use for OpenEverest CRD installation.
-OPENEVEREST_BRANCH ?= main
-
 # Image URL to use for building/pushing image targets
 IMG ?= ghcr.io/openeverest/provider-neo4j-dev:latest
 
@@ -36,7 +33,6 @@ GOLANGCI_LINT ?= $(LOCALBIN)/golangci-lint-$(GOLANGCI_LINT_VERSION)
 
 # Helm chart directory
 CHART_DIR ?= charts/provider-neo4j
-NEO4J_OPERATOR_VERSION ?= 1.0.0
 
 .PHONY: help
 help: ## Display this help.
@@ -93,7 +89,8 @@ operator-crds: ## Copy the pinned Neo4j operator CRDs into the provider chart.
 		install -m 0644 "$${OPERATOR_DIR}/config/crd/bases/neo4j.com_neo4js.yaml" $(CHART_DIR)/crds/neo4j.com_neo4js.yaml; \
 		install -m 0644 "$${OPERATOR_DIR}/config/crd/bases/neo4j.com_neo4jbackups.yaml" $(CHART_DIR)/crds/neo4j.com_neo4jbackups.yaml; \
 		install -m 0644 "$${OPERATOR_DIR}/config/crd/bases/neo4j.com_neo4jbackupschedules.yaml" $(CHART_DIR)/crds/neo4j.com_neo4jbackupschedules.yaml; \
-		install -m 0644 "$${OPERATOR_DIR}/config/crd/bases/neo4j.com_neo4jrestores.yaml" $(CHART_DIR)/crds/neo4j.com_neo4jrestores.yaml
+		install -m 0644 "$${OPERATOR_DIR}/config/crd/bases/neo4j.com_neo4jrestores.yaml" $(CHART_DIR)/crds/neo4j.com_neo4jrestores.yaml; \
+		install -m 0644 "$${OPERATOR_DIR}/config/crd/bases/neo4j.com_neo4jstudios.yaml" $(CHART_DIR)/crds/neo4j.com_neo4jstudios.yaml
 
 .PHONY: verify
 verify: ## Verify that generated files are up-to-date (for CI).
@@ -153,8 +150,16 @@ test-integration: ## Run all integration tests against the current cluster.
 	. ./test/vars.sh && chainsaw test --config ./test/integration/.chainsaw.yaml ./test/integration
 
 .PHONY: test-integration-core
-test-integration-core: ## Run core integration tests.
+test-integration-core: ## Run core integration tests (standalone, cluster, admission).
 	. ./test/vars.sh && chainsaw test --config ./test/integration/.chainsaw.yaml ./test/integration/core
+
+.PHONY: test-integration-presets
+test-integration-presets: ## Run the ClusterInstancePreset integration tests.
+	. ./test/vars.sh && chainsaw test --config ./test/integration/.chainsaw.yaml ./test/integration/presets
+
+.PHONY: test-integration-monitoring
+test-integration-monitoring: ## Run monitoring integration tests.
+	. ./test/vars.sh && chainsaw test --config ./test/integration/.chainsaw.yaml ./test/integration/monitoring
 
 .PHONY: load-image
 load-image: ## Import the provider image (IMG) into the k3d cluster.
@@ -165,18 +170,10 @@ load-openeverest-controller-image: ## Import the OpenEverest controller image in
 	k3d image import ${OPENEVEREST_CONTROLLER_IMG} -c ${K3D_CLUSTER_NAME}
 
 .PHONY: install-crds
-install-crds: ## Install OpenEverest CRDs (and your operator's CRDs) into the cluster.
-	kubectl apply -f https://raw.githubusercontent.com/openeverest/openeverest/$(OPENEVEREST_BRANCH)/config/crd/bases/core.openeverest.io_providers.yaml
-	kubectl apply -f https://raw.githubusercontent.com/openeverest/openeverest/$(OPENEVEREST_BRANCH)/config/crd/bases/core.openeverest.io_instances.yaml
-	kubectl apply -f https://raw.githubusercontent.com/openeverest/openeverest/$(OPENEVEREST_BRANCH)/config/crd/bases/core.openeverest.io_instancepresets.yaml
-	kubectl apply -f https://raw.githubusercontent.com/openeverest/openeverest/$(OPENEVEREST_BRANCH)/config/crd/bases/monitoring.openeverest.io_monitoringclasses.yaml
-	kubectl apply -f https://raw.githubusercontent.com/openeverest/openeverest/$(OPENEVEREST_BRANCH)/config/crd/bases/monitoring.openeverest.io_monitoringdestinations.yaml
-	kubectl apply -f https://raw.githubusercontent.com/openeverest/openeverest/$(OPENEVEREST_BRANCH)/config/crd/bases/monitoring.openeverest.io_monitoringbindings.yaml
-	kubectl apply -f https://raw.githubusercontent.com/openeverest/openeverest/$(OPENEVEREST_BRANCH)/config/crd/bases/backup.openeverest.io_backupclasses.yaml
-	kubectl apply -f https://raw.githubusercontent.com/openeverest/openeverest/$(OPENEVEREST_BRANCH)/config/crd/bases/backup.openeverest.io_backups.yaml
-	kubectl apply -f https://raw.githubusercontent.com/openeverest/openeverest/$(OPENEVEREST_BRANCH)/config/crd/bases/backup.openeverest.io_restores.yaml
-	kubectl apply -f https://raw.githubusercontent.com/openeverest/openeverest/$(OPENEVEREST_BRANCH)/config/crd/bases/backup.openeverest.io_backupstorages.yaml
-	kubectl apply --server-side -f https://github.com/neo4j-partners/neo4j-kubernetes-operator/releases/download/v$(NEO4J_OPERATOR_VERSION)/neo4j-crd-$(NEO4J_OPERATOR_VERSION).yaml
+install-crds: ## Install the OpenEverest CRDs of the core version pinned in go.mod, and the Neo4j operator CRDs the chart ships.
+	go mod download github.com/openeverest/openeverest/v2
+	kubectl apply --server-side --force-conflicts -f "$$(go list -m -f '{{.Dir}}' github.com/openeverest/openeverest/v2)/config/crd/bases"
+	kubectl apply --server-side --force-conflicts -f $(CHART_DIR)/crds
 
 .PHONY: deploy-provider-ci
 deploy-provider-ci: helm-deps ## Deploy the provider via Helm for CI (IMG must already be imported into k3d).

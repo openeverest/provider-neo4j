@@ -9,6 +9,15 @@
 - apiGroups:
     - ""
   resources:
+    - pods
+  verbs:
+    - get
+    - list
+    - patch
+    - watch
+- apiGroups:
+    - ""
+  resources:
     - secrets
   verbs:
     - create
@@ -26,6 +35,14 @@
   verbs:
     - create
     - patch
+- apiGroups:
+    - apps
+  resources:
+    - statefulsets
+  verbs:
+    - get
+    - list
+    - watch
 - apiGroups:
     - backup.openeverest.io
   resources:

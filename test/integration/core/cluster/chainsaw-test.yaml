@@ -1,0 +1,111 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/kyverno/chainsaw/main/.schemas/json/test-chainsaw-v1alpha1.json
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: core-cluster
+spec:
+  description: |
+    An Enterprise cluster with analytics and read pools renders the Neo4j
+    topology, reports each component's desired replicas, and is Available
+    while a majority of its primaries is ready. Losing that majority after
+    the cluster has served makes it unavailable with NoPrimaryQuorum.
+  catch:
+    - script:
+        content: kubectl -n $NAMESPACE get instance,neo4j -o yaml
+    - podLogs:
+        namespace: provider-system
+        selector: app.kubernetes.io/name=provider-neo4j
+        tail: 100
+  steps:
+    - name: provider-deployed
+      try:
+        - assert:
+            file: 00-assert.yaml
+
+    - name: create-instance
+      try:
+        - apply:
+            file: 10-create-instance.yaml
+        - assert:
+            file: 10-assert.yaml
+
+    # The Neo4j operator is scaled to 0: report what it writes for a formed
+    # cluster whose servers are all ready. With no StatefulSets, the provider
+    # counts ready primaries from status.members.
+    - name: cluster-ready
+      try:
+        - script:
+            content: |
+              kubectl -n $NAMESPACE create secret generic test-cluster-auth \
+                --from-literal=NEO4J_AUTH=neo4j/test-password
+              generation=$(kubectl -n $NAMESPACE get neo4j test-cluster -o jsonpath='{.metadata.generation}')
+              now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+              kubectl -n $NAMESPACE patch neo4j test-cluster --subresource=status --type=merge -p "$(cat <<EOF
+              {"status": {
+                "phase": "Running",
+                "observedGeneration": ${generation},
+                "version": "2026.07.1",
+                "serverSummary": {"servers": 6, "ready": 6},
+                "conditions": [
+                  {"type": "Ready", "status": "True", "reason": "AllMembersReady", "message": "6/6 servers ready",
+                   "observedGeneration": ${generation}, "lastTransitionTime": "${now}"},
+                  {"type": "ClusterFormed", "status": "True", "reason": "Formed", "message": "",
+                   "observedGeneration": ${generation}, "lastTransitionTime": "${now}"}
+                ],
+                "members": [
+                  {"name": "test-cluster-primary-0", "pool": "primary", "podReady": true},
+                  {"name": "test-cluster-primary-1", "pool": "primary", "podReady": true},
+                  {"name": "test-cluster-primary-2", "pool": "primary", "podReady": true},
+                  {"name": "test-cluster-analytics-0", "pool": "analytics", "podReady": true},
+                  {"name": "test-cluster-read-0", "pool": "read", "podReady": true},
+                  {"name": "test-cluster-read-1", "pool": "read", "podReady": true}
+                ],
+                "credentials": {"secretName": "test-cluster-auth", "generated": true},
+                "endpoints": {"neo4j": "neo4j://test-cluster:7687"}
+              }}
+              EOF
+              )"
+        - assert:
+            file: 11-assert.yaml
+
+    - name: primary-quorum-lost
+      try:
+        - script:
+            content: |
+              generation=$(kubectl -n $NAMESPACE get neo4j test-cluster -o jsonpath='{.metadata.generation}')
+              now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+              kubectl -n $NAMESPACE patch neo4j test-cluster --subresource=status --type=merge -p "$(cat <<EOF
+              {"status": {
+                "phase": "Degraded",
+                "serverSummary": {"servers": 6, "ready": 4},
+                "conditions": [
+                  {"type": "Ready", "status": "False", "reason": "MembersNotReady", "message": "4/6 servers ready",
+                   "observedGeneration": ${generation}, "lastTransitionTime": "${now}"},
+                  {"type": "ClusterFormed", "status": "True", "reason": "Formed", "message": "",
+                   "observedGeneration": ${generation}, "lastTransitionTime": "${now}"}
+                ],
+                "members": [
+                  {"name": "test-cluster-primary-0", "pool": "primary", "podReady": true},
+                  {"name": "test-cluster-primary-1", "pool": "primary", "podReady": false},
+                  {"name": "test-cluster-primary-2", "pool": "primary", "podReady": false},
+                  {"name": "test-cluster-analytics-0", "pool": "analytics", "podReady": true},
+                  {"name": "test-cluster-read-0", "pool": "read", "podReady": true},
+                  {"name": "test-cluster-read-1", "pool": "read", "podReady": true}
+                ]
+              }}
+              EOF
+              )"
+        - assert:
+            file: 20-assert.yaml
+
+    - name: delete-instance
+      try:
+        - script:
+            content: kubectl -n $NAMESPACE delete instance test-cluster --wait=false
+        - wait:
+            apiVersion: core.openeverest.io/v1alpha1
+            kind: Instance
+            name: test-cluster
+            timeout: 2m
+            for:
+              deletion: {}

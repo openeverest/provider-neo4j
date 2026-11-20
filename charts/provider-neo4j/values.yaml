@@ -124,28 +124,47 @@ provider:
   # used in other contexts where a short concise provider identifier is needed.
   shortName: neo4j
 
-# -- Default cluster instance presets configuration
-# Each preset must have 'name', 'enabled', and 'spec' fields.
-# The 'spec' field contains the full ClusterInstancePresetSpec.
-# Note: The provider shortName will be automatically added to each preset name.
-presets: []
-  # Example preset structure:
-  # - name: standalone
-  #   enabled: true
-  #   spec:
-  #     provider: neo4j
-  #     version: 1.0.0
-  #     topology:
-  #       type: standalone
-  #     components:
-  #       engine:
-  #         replicas: 1
-  #         resources:
-  #           limits:
-  #             cpu: "1"
-  #             memory: 2Gi
-  #         storage:
-  #           size: 10Gi
+# -- ClusterInstancePresets the chart installs, one per topology. Each is
+# named '<shortName>-<name>'; the chart sets spec.providerRef. A preset is
+# cluster-scoped, so its spec must not reference namespaced objects such as
+# Secrets or backup storages. version is the provider's default version; keep
+# it in step with definition/versions.yaml (a unit test checks it).
+presets:
+  - name: standalone
+    enabled: true
+    spec:
+      version: "2026.07.1"
+      topology:
+        type: standalone
+      components:
+        engine:
+          replicas: 1
+          resources:
+            limits:
+              cpu: "1"
+              memory: 2Gi
+          storage:
+            size: 10Gi
+  # Cluster needs Neo4j Enterprise, whose license only you can accept: enable
+  # this preset and set spec.parameters.licenseAcceptance to "yes" (production)
+  # or "eval" (evaluation).
+  - name: cluster
+    enabled: false
+    spec:
+      version: "2026.07.1"
+      topology:
+        type: cluster
+      parameters:
+        edition: enterprise
+      components:
+        engine:
+          replicas: 3
+          resources:
+            limits:
+              cpu: "1"
+              memory: 2Gi
+          storage:
+            size: 10Gi
 
 # -- Additional environment variables to set on the provider container
 extraEnv: []

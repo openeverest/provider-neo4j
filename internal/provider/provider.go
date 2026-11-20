@@ -2,14 +2,16 @@ package provider
 
 import (
 	"fmt"
+	"maps"
 	"net/url"
+	"slices"
 	"strings"
 
 	cmapi "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
 	neo4jv1 "github.com/neo4j/neo4j-kubernetes-operator/src/api/v1"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
@@ -37,10 +39,12 @@ func New() *Provider {
 		SchemeFuncs: []func(*runtime.Scheme) error{
 			neo4jv1.AddToScheme,
 			cmapi.AddToScheme,
+			appsv1.AddToScheme,
 		},
 		WatchConfigs: []controller.WatchConfig{
 			controller.WatchOwned(&neo4jv1.Neo4j{}),
 			controller.WatchExternal(&backupRestoreType{}, handler.EnqueueRequestsFromMapFunc(enqueueRestoreInstance())),
+			controller.WatchExternal(&appsv1.StatefulSet{}, handler.EnqueueRequestsFromMapFunc(enqueueStatefulSetInstance())),
 		},
 	}}
 	// Runtime-generated BackupClasses are stamped by the provider release and
@@ -64,6 +68,9 @@ func (p *Provider) Sync(c *controller.Context) error {
 		return fmt.Errorf("apply Neo4j: %w", err)
 	}
 	if err := reconcileBackupSchedules(c, neo4j); err != nil {
+		return err
+	}
+	if err := labelPods(c); err != nil {
 		return err
 	}
 	if c.Instance().Spec.DataSource != nil {
@@ -94,60 +101,9 @@ func (p *Provider) Sync(c *controller.Context) error {
 	return nil
 }
 
+// Status reports facts about Neo4j; see status.go.
 func (p *Provider) Status(c *controller.Context) (controller.Status, error) {
-	if ds := c.GetDataSourceStatus(); ds != nil {
-		if !ds.Done {
-			return controller.Restoring(ds.Message), nil
-		}
-		if ds.State == controller.DataSourceStateFailed {
-			return controller.Failed(ds.Message), nil
-		}
-	}
-	neo4j := &neo4jv1.Neo4j{}
-	if err := c.Get(neo4j, c.Name()); err != nil {
-		if apierrors.IsNotFound(err) {
-			return controller.Provisioning("waiting for the Neo4j resource"), nil
-		}
-		return controller.Status{}, fmt.Errorf("get Neo4j: %w", err)
-	}
-	activeRestore, err := hasActiveRestore(c)
-	if err != nil {
-		return controller.Status{}, err
-	}
-	if activeRestore {
-		return controller.Restoring("a Neo4j restore is running"), nil
-	}
-	if neo4j.Status.ObservedGeneration != neo4j.Generation {
-		return controller.Updating("waiting for the operator to observe the latest configuration"), nil
-	}
-	switch neo4j.Status.Phase {
-	case neo4jv1.Neo4jPhaseFailed:
-		return controller.Failed(statusMessage(neo4j, "the Neo4j operator reported a failure")), nil
-	case neo4jv1.Neo4jPhaseMaintenance:
-		return controller.Updating("Neo4j is in maintenance mode"), nil
-	case neo4jv1.Neo4jPhaseRunning:
-		details, err := connectionDetails(c, neo4j)
-		if err != nil {
-			return controller.Status{}, err
-		}
-		return controller.ReadyWithConnectionDetails(details), nil
-	case neo4jv1.Neo4jPhaseBootstrapping:
-		return controller.Initializing(statusMessage(neo4j, "bootstrapping Neo4j")), nil
-	case neo4jv1.Neo4jPhaseDegraded:
-		return controller.Updating(statusMessage(neo4j, "Neo4j is degraded")), nil
-	default:
-		return controller.Provisioning(statusMessage(neo4j, "provisioning Neo4j")), nil
-	}
-}
-
-func statusMessage(neo4j *neo4jv1.Neo4j, fallback string) string {
-	for i := len(neo4j.Status.Conditions) - 1; i >= 0; i-- {
-		condition := neo4j.Status.Conditions[i]
-		if condition.Status == metav1.ConditionFalse && condition.Message != "" {
-			return condition.Message
-		}
-	}
-	return fallback
+	return status(c)
 }
 
 func connectionDetails(c *controller.Context, neo4j *neo4jv1.Neo4j) (controller.ConnectionDetails, error) {
@@ -220,8 +176,8 @@ func (p *Provider) Cleanup(c *controller.Context) error {
 	return nil
 }
 
-// MonitoringSources exposes Neo4j's Enterprise Prometheus endpoint. The
-// operator labels each StatefulSet pod with neo4j.com/pool.
+// MonitoringSources exposes Neo4j's Enterprise Prometheus endpoint on every
+// pool's pods.
 func (p *Provider) MonitoringSources(c *controller.Context) (*corev1alpha1.MonitoringSources, error) {
 	live := &neo4jv1.Neo4j{}
 	if err := c.Get(live, c.Name()); err != nil {
@@ -236,25 +192,15 @@ func (p *Provider) MonitoringSources(c *controller.Context) (*corev1alpha1.Monit
 		!live.Spec.Features.Monitoring.Prometheus.Enabled {
 		return out, nil
 	}
-	pools := []struct{ component, pool string }{{common.ComponentEngine, "primary"}}
-	if live.Spec.Topology.Mode == neo4jv1.TopologyModeStandalone {
-		pools[0].pool = "server"
-	}
-	if live.Spec.Topology.Secondaries != nil {
-		if live.Spec.Topology.Secondaries.Analytics != nil {
-			pools = append(pools, struct{ component, pool string }{common.ComponentAnalytics, "analytics"})
-		}
-		if live.Spec.Topology.Secondaries.Read != nil {
-			pools = append(pools, struct{ component, pool string }{common.ComponentRead, "read"})
-		}
-	}
-	for _, pool := range pools {
+	components := slices.Sorted(maps.Keys(componentPools(c)))
+	for _, component := range components {
 		out.Metrics = append(out.Metrics, corev1alpha1.MetricsEndpoint{
-			Component: pool.component,
-			Kind:      "neo4j",
+			Component: component,
+			Kind:      common.ComponentTypeNeo4j,
+			// labelPods puts these labels on the pods of each pool.
 			PodSelector: map[string]string{
-				"app.kubernetes.io/instance": c.Name(),
-				"neo4j.com/pool":             pool.pool,
+				controller.InstanceLabel:  c.Name(),
+				controller.ComponentLabel: component,
 			},
 			Port:   intstr.FromString("tcp-prometheus"),
 			Path:   "/metrics",

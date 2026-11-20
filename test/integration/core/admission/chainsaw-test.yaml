@@ -1,0 +1,122 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/kyverno/chainsaw/main/.schemas/json/test-chainsaw-v1alpha1.json
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: core-admission
+spec:
+  description: |
+    The provider's admission webhook: it rejects an invalid Instance with the
+    field paths, and Prometheus metrics on Community. It admits an invalid
+    Instance while the provider is down, which then reports ValidationFailed,
+    blocks an update only on errors the stored Instance did not already have,
+    and lets the fixed Instance sync.
+  # Scales the provider down, which every other test depends on.
+  concurrent: false
+  catch:
+    - script:
+        content: kubectl -n $NAMESPACE get instance,neo4j -o yaml
+    - podLogs:
+        namespace: provider-system
+        selector: app.kubernetes.io/name=provider-neo4j
+        tail: 100
+  steps:
+    - name: provider-ready
+      try:
+        - assert:
+            file: 00-assert.yaml
+
+    - name: reject-invalid
+      try:
+        # The webhook may not serve yet right after the provider starts.
+        - script:
+            timeout: 1m
+            content: |
+              for i in $(seq 1 25); do
+                kubectl apply --dry-run=server -n $NAMESPACE -f 10-invalid-instance.yaml >/dev/null 2>&1 || break
+                sleep 2
+              done
+              kubectl apply --dry-run=server -n $NAMESPACE -f 10-invalid-instance.yaml
+            check:
+              ($error != null): true
+              (contains($stderr, 'spec.parameters.edition')): true
+              (contains($stderr, 'spec.components[engine].replicas')): true
+        - script:
+            content: kubectl apply -n $NAMESPACE -f 10-invalid-instance.yaml
+            check:
+              ($error != null): true
+              (contains($stderr, 'spec.parameters.edition')): true
+              (contains($stderr, 'spec.components[engine].replicas')): true
+        - error:
+            file: 10-error.yaml
+
+    - name: reject-community-metrics
+      try:
+        - script:
+            content: kubectl apply -n $NAMESPACE -f 15-community-metrics.yaml
+            check:
+              ($error != null): true
+              (contains($stderr, 'spec.monitoring.sources.metrics.policy')): true
+
+    - name: admit-while-provider-down
+      try:
+        - script:
+            timeout: 1m
+            content: |
+              kubectl -n provider-system scale deployment/provider-neo4j --replicas=0
+              while kubectl -n provider-system get pods -o name \
+                -l app.kubernetes.io/name=provider-neo4j | grep -q .; do
+                sleep 1
+              done
+        - apply:
+            file: 10-invalid-instance.yaml
+      finally:
+        - script:
+            timeout: 2m
+            content: |
+              kubectl -n provider-system scale deployment/provider-neo4j --replicas=1
+              kubectl -n provider-system rollout status deployment/provider-neo4j --timeout=110s
+
+    - name: report-once-back
+      try:
+        - assert:
+            file: 20-assert.yaml
+
+    - name: block-new-errors-only
+      try:
+        - script:
+            timeout: 1m
+            content: |
+              # Writes are admitted until the webhook serves again.
+              for i in $(seq 1 25); do
+                kubectl apply --dry-run=server -n $NAMESPACE -f 30-new-error.yaml >/dev/null 2>&1 || break
+                sleep 2
+              done
+              kubectl apply -n $NAMESPACE -f 30-new-error.yaml
+            check:
+              ($error != null): true
+              (contains($stderr, 'spec.components[engine].resources.limits')): true
+              (contains($stderr, 'spec.parameters.edition')): false
+              (contains($stderr, 'spec.components[engine].replicas')): false
+        - script:
+            content: kubectl apply -n $NAMESPACE -f 31-unrelated-change.yaml
+        - assert:
+            file: 31-assert.yaml
+
+    - name: fix
+      try:
+        - apply:
+            file: 40-fixed-instance.yaml
+        - assert:
+            file: 40-assert.yaml
+
+    - name: delete-instance
+      try:
+        - script:
+            content: kubectl -n $NAMESPACE delete instance/test-admission --wait=false --ignore-not-found
+        - wait:
+            apiVersion: core.openeverest.io/v1alpha1
+            kind: Instance
+            name: test-admission
+            timeout: 2m
+            for:
+              deletion: {}

@@ -1,7 +1,7 @@
 apiVersion: chainsaw.kyverno.io/v1alpha1
 kind: Test
 metadata:
-  name: core
+  name: core-standalone
 spec:
   description: Create, report status for, and delete a Neo4j Instance.
   catch:
@@ -29,8 +29,23 @@ spec:
               kubectl -n $NAMESPACE create secret generic test-instance-auth \
                 --from-literal=NEO4J_AUTH=neo4j/test-password
               generation=$(kubectl -n $NAMESPACE get neo4j test-instance -o jsonpath='{.metadata.generation}')
-              kubectl -n $NAMESPACE patch neo4j test-instance --subresource=status --type=merge \
-                -p "{\"status\":{\"phase\":\"Running\",\"observedGeneration\":${generation},\"credentials\":{\"secretName\":\"test-instance-auth\",\"generated\":true},\"endpoints\":{\"neo4j\":\"neo4j://test-instance:7687\"}}}"
+              version=$(kubectl -n $NAMESPACE get neo4j test-instance -o jsonpath='{.spec.version}')
+              now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+              # The Neo4j operator is scaled to 0, so report what it would
+              # write for a ready standalone server.
+              kubectl -n $NAMESPACE patch neo4j test-instance --subresource=status --type=merge -p "$(cat <<EOF
+              {"status": {
+                "phase": "Running",
+                "observedGeneration": ${generation},
+                "version": "${version}",
+                "serverSummary": {"servers": 1, "ready": 1},
+                "conditions": [{"type": "Ready", "status": "True", "reason": "AllMembersReady",
+                  "message": "1/1 servers ready", "observedGeneration": ${generation}, "lastTransitionTime": "${now}"}],
+                "credentials": {"secretName": "test-instance-auth", "generated": true},
+                "endpoints": {"neo4j": "neo4j://test-instance:7687"}
+              }}
+              EOF
+              )"
         - assert:
             file: 11-assert.yaml
     - name: delete-instance

@@ -1,0 +1,11 @@
+apiVersion: neo4j.com/v1
+kind: Neo4j
+metadata:
+  name: itest-preset
+spec:
+  edition: community
+  version: "2026.07.1"
+  topology:
+    mode: Standalone
+  # TLS is on by default, with the provider's own CA.
+  (trust != null): true

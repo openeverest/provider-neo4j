@@ -1,0 +1,11 @@
+apiVersion: core.openeverest.io/v1alpha1
+kind: Instance
+metadata:
+  name: test-cluster
+status:
+  phase: Provisioned
+  (conditions[?type == 'Ready'].status | [0]): "True"
+  (conditions[?type == 'Available'].status | [0]): "True"
+  (components[?name == 'engine'].desiredReplicas | [0]): 3
+  (components[?name == 'analytics'].desiredReplicas | [0]): 1
+  (components[?name == 'read'].desiredReplicas | [0]): 2

@@ -588,20 +588,4 @@ func enqueueRestoreInstance() func(context.Context, client.Object) []reconcile.R
 	}
 }
 
-func hasActiveRestore(c *controller.Context) (bool, error) {
-	restores := &backupv1alpha1.RestoreList{}
-	if err := c.Client().List(c.Context(), restores, client.InNamespace(c.Namespace()),
-		client.MatchingFields{controller.IndexRestoreInstanceName: c.Name()}); err != nil {
-		return false, fmt.Errorf("list Restore resources for %q: %w", c.Name(), err)
-	}
-	for i := range restores.Items {
-		switch restores.Items[i].Status.State {
-		case backupv1alpha1.RestoreStateSucceeded, backupv1alpha1.RestoreStateFailed:
-		default:
-			return true, nil
-		}
-	}
-	return false, nil
-}
-
 type backupRestoreType = backupv1alpha1.Restore
