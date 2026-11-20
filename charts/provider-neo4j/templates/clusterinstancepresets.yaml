@@ -9,6 +9,8 @@ metadata:
     {{- include "provider-neo4j.labels" $ | nindent 4 }}
     app.kubernetes.io/component: preset
 spec:
+  providerRef:
+    name: {{ $.Values.provider.name }}
   {{- toYaml $preset.spec | nindent 2 }}
 {{- end }}
 {{- end }}

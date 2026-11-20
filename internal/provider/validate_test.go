@@ -20,11 +20,15 @@ func TestValidate(t *testing.T) {
 		want []string
 	}{
 		{fixture: "testdata/validate/minimal.yaml"},
-		// TODO: Add a fixture per rule, e.g.:
-		// {
-		//     fixture: "testdata/validate/even-replicas.yaml",
-		//     want:    []string{"spec.components[engine].replicas"},
-		// },
+		{
+			fixture: "testdata/validate/community-cluster.yaml",
+			want:    []string{"spec.parameters.edition", "spec.components[engine].replicas"},
+		},
+		{
+			fixture: "testdata/validate/community-metrics-always.yaml",
+			want:    []string{"spec.monitoring.sources.metrics.policy"},
+		},
+		{fixture: "testdata/validate/enterprise-metrics-always.yaml"},
 	}
 
 	for _, tt := range tests {
