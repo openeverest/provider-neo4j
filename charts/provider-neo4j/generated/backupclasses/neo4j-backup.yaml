@@ -109,4 +109,4 @@ spec:
       x-kubernetes-validations:
         - message: forceOffline requires overwrite
           rule: '!has(self.forceOffline) || !self.forceOffline || self.overwrite'
-  supportsImport: false
+  supportsImport: true

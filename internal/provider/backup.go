@@ -329,12 +329,31 @@ func (p *Provider) SyncRestore(c *controller.Context, restore *backupv1alpha1.Re
 		}
 		return controller.RestoreExecutionStatus{}, err
 	}
-	name := source.Name
-	if source.Status.OperatorBackupRef != nil && source.Status.OperatorBackupRef.Name != "" {
-		name = source.Status.OperatorBackupRef.Name
-	}
-	params := neobackup.Neo4jRestoreParameters{Databases: []string{"neo4j"}}
+	params := neobackup.Neo4jRestoreParameters{}
 	_ = decodeRaw(restore.Spec.Parameters, &params)
+	restoreSource := neo4jv1.RestoreSource{BackupRef: source.Name}
+	if source.Status.OperatorBackupRef != nil && source.Status.OperatorBackupRef.Name != "" {
+		restoreSource.BackupRef = source.Status.OperatorBackupRef.Name
+	}
+	if source.Spec.Origin.Type == backupv1alpha1.BackupOriginTypeExternal {
+		// An imported Backup has no Neo4jBackup: restore its artifact by URL.
+		var database string
+		restoreSource, database, err = externalRestoreSource(c, source)
+		if err != nil {
+			return controller.RestoreExecutionStatus{
+				State: backupv1alpha1.RestoreStateFailed, Message: err.Error(),
+			}, nil
+		}
+		if len(params.Databases) == 0 {
+			params.Databases = []string{database}
+		}
+		if len(params.Databases) != 1 {
+			return controller.RestoreExecutionStatus{
+				State:   backupv1alpha1.RestoreStateFailed,
+				Message: "an imported Backup holds one database: set at most one in parameters.databases",
+			}, nil
+		}
+	}
 	params.Databases = defaultBackupDatabases(params.Databases)
 	if isDataSourceRestore(c, restore) {
 		// A new Neo4j always has an empty default database, which the seed
@@ -354,7 +373,7 @@ func (p *Provider) SyncRestore(c *controller.Context, restore *backupv1alpha1.Re
 				Databases:    params.Databases,
 				Overwrite:    params.Overwrite,
 				ForceOffline: params.ForceOffline,
-				Source:       neo4jv1.RestoreSource{BackupRef: name},
+				Source:       restoreSource,
 			}
 		}
 		return controllerutil.SetControllerReference(restore, desired, c.Client().Scheme())
