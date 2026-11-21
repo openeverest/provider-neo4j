@@ -261,12 +261,6 @@ spec:
       sections:
         advanced:
           components:
-            configuration:
-              fieldParams:
-                label: neo4j.conf
-                multiline: true
-              path: spec.components.engine.parameters.configuration
-              uiType: text
             externalAccess:
               fieldParams:
                 defaultValue: ClusterIP
@@ -282,7 +276,6 @@ spec:
               uiType: select
           componentsOrder:
             - externalAccess
-            - configuration
           label: Advanced configuration
         databaseVersion:
           components:
@@ -440,12 +433,6 @@ spec:
       sections:
         advanced:
           components:
-            configuration:
-              fieldParams:
-                label: neo4j.conf
-                multiline: true
-              path: spec.components.engine.parameters.configuration
-              uiType: text
             externalAccess:
               fieldParams:
                 defaultValue: ClusterIP
@@ -461,7 +448,6 @@ spec:
               uiType: select
           componentsOrder:
             - externalAccess
-            - configuration
           label: Advanced configuration
         databaseVersion:
           components:

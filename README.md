@@ -175,6 +175,19 @@ A LoadBalancer without `sourceRanges` is open to `0.0.0.0/0`: the Neo4j operator
 source ranges, and OpenEverest treats unset ranges as unrestricted. Set them for anything
 reachable from the internet; the UI does not offer the field yet.
 
+### Configuration
+
+`neo4j.conf` settings are a map under the engine's parameters. The UI has no editor for it;
+set it in the Instance:
+
+```yaml
+components:
+  engine:
+    parameters:
+      configuration:
+        db.tx_log.rotation.retention_policy: "2 days"
+```
+
 The UI takes CPU in cores, fractions included (`0.5`), and memory and disk in Gi, and writes
 them as Kubernetes quantity strings; a value it did not change keeps its stored form (for
 example `2048Mi`). Disk size cannot be decreased.
