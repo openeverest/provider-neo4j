@@ -164,25 +164,11 @@ func reconcileBackupSchedules(c *controller.Context, neo4j *neo4jv1.Neo4j) error
 				schedule := storage.Schedules[i]
 				name := c.Name() + "-" + schedule.Name
 				desired[name] = struct{}{}
-				retention, err := backupRetention(schedule.Retention)
+				spec, err := backupScheduleSpec(neo4j.Name, schedule, destination)
 				if err != nil {
 					return err
 				}
-				obj := &neo4jv1.Neo4jBackupSchedule{
-					ObjectMeta: c.ObjectMeta(name),
-					Spec: neo4jv1.Neo4jBackupScheduleSpec{
-						Neo4jRef: neo4jv1.Neo4jRef{Name: neo4j.Name},
-						Suspend:  !schedule.Enabled,
-						Full: neo4jv1.FullCadence{
-							Schedule:  schedule.Cron,
-							Retention: retention,
-						},
-						BackupTemplate: neo4jv1.BackupTemplate{
-							Databases:   []string{"neo4j"},
-							Destination: destination,
-						},
-					},
-				}
+				obj := &neo4jv1.Neo4jBackupSchedule{ObjectMeta: c.ObjectMeta(name), Spec: spec}
 				obj.Labels[managedScheduleLabel] = c.Name()
 				if err := c.Apply(obj); err != nil {
 					return fmt.Errorf("apply Neo4jBackupSchedule %q: %w", name, err)
@@ -208,6 +194,47 @@ func reconcileBackupSchedules(c *controller.Context, neo4j *neo4jv1.Neo4j) error
 		}
 	}
 	return nil
+}
+
+// backupScheduleSpec translates one schedule of the Instance. Its cron takes
+// full backups, each starting a chain; the schedule's parameters add
+// incremental backups to the chain and compact it once it is closed.
+func backupScheduleSpec(
+	neo4jName string, schedule corev1alpha1.InstanceBackupSchedule, destination neo4jv1.BackupDestination,
+) (neo4jv1.Neo4jBackupScheduleSpec, error) {
+	retention, err := backupRetention(schedule.Retention)
+	if err != nil {
+		return neo4jv1.Neo4jBackupScheduleSpec{}, err
+	}
+	params := neobackup.Neo4jBackupParameters{}
+	_ = decodeRaw(schedule.Parameters, &params)
+	spec := neo4jv1.Neo4jBackupScheduleSpec{
+		Neo4jRef: neo4jv1.Neo4jRef{Name: neo4jName},
+		Suspend:  !schedule.Enabled,
+		Full: neo4jv1.FullCadence{
+			Schedule:  schedule.Cron,
+			Retention: retention,
+		},
+		BackupTemplate: neo4jv1.BackupTemplate{
+			Databases:   defaultBackupDatabases(params.Databases),
+			Destination: destination,
+			Scratch:     backupScratch(params),
+		},
+	}
+	if params.IncrementalSchedule != "" {
+		spec.Incremental = &neo4jv1.IncrementalCadence{Schedule: params.IncrementalSchedule}
+	}
+	if params.Aggregate {
+		spec.Aggregate = &neo4jv1.AggregateCadence{Enabled: true}
+	}
+	return spec, nil
+}
+
+func backupScratch(params neobackup.Neo4jBackupParameters) *neo4jv1.BackupScratch {
+	if params.ScratchSize == "" {
+		return nil
+	}
+	return &neo4jv1.BackupScratch{Size: params.ScratchSize}
 }
 
 func backupRetention(in *corev1alpha1.BackupScheduleRetention) (*neo4jv1.BackupRetention, error) {
@@ -269,6 +296,7 @@ func (p *Provider) SyncBackup(c *controller.Context, backup *backupv1alpha1.Back
 				Databases:   params.Databases,
 				Destination: destination,
 				Type:        neo4jv1.BackupType(params.Type),
+				Scratch:     backupScratch(params),
 			},
 		}
 		if _, err := controllerutil.CreateOrUpdate(c.Context(), c.Client(), desired, func() error {

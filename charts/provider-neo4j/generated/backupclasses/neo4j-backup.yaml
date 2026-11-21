@@ -57,8 +57,14 @@ spec:
   executionMode: ProviderManaged
   parametersSchema:
     openAPIV3Schema:
-      description: Neo4jBackupParameters configures one on-demand or scheduled backup.
+      description: Neo4jBackupParameters configures one on-demand backup or one backup schedule.
       properties:
+        aggregate:
+          description: |-
+            Aggregate compacts a schedule's chain into one full backup once the next
+            full backup closes it, which bounds how long a restore replays
+            incrementals. Ignored on an on-demand backup.
+          type: boolean
         databases:
           description: |-
             Databases defaults to the standard "neo4j" user database. The Neo4j
@@ -67,11 +73,28 @@ spec:
           items:
             type: string
           type: array
+        incrementalSchedule:
+          description: |-
+            IncrementalSchedule is a cron expression for incremental backups taken
+            between a schedule's full backups. Each attaches to the chain the last
+            full backup started, and retention removes whole chains. Ignored on an
+            on-demand backup.
+          maxLength: 100
+          type: string
+        scratchSize:
+          description: |-
+            ScratchSize gives the backup a dedicated staging volume of this size
+            (for example 200Gi), which must hold a compressed copy of the backup.
+            Without it the backup stages on the node's ephemeral storage and a large
+            database can get its backup pod evicted.
+          pattern: ^[1-9][0-9]*(Mi|Gi|Ti)$
+          type: string
         type:
           default: Full
           description: |-
             Type defaults to Full. Auto is useful when Neo4j should choose a full or
-            incremental link according to the existing chain.
+            incremental link according to the existing chain. Ignored on a schedule,
+            whose cron always takes full backups: see IncrementalSchedule.
           enum:
             - Full
             - Auto

@@ -193,6 +193,31 @@ The UI takes CPU in cores, fractions included (`0.5`), and memory and disk in Gi
 them as Kubernetes quantity strings; a value it did not change keeps its stored form (for
 example `2048Mi`). Disk size cannot be decreased.
 
+## Backup parameters
+
+`parameters` on a `Backup`, or on a schedule in `spec.backup.storages[].schedules[]`:
+
+| Parameter | Backup | Schedule | Meaning |
+|---|---|---|---|
+| `databases` | yes | yes | Databases to back up. Default `["neo4j"]`. |
+| `type` | yes | no | `Full` (default), `Auto` or `Incremental`. A schedule's cron always takes full backups. |
+| `incrementalSchedule` | no | yes | Cron for incremental backups between the schedule's full backups. |
+| `aggregate` | no | yes | Compact each chain into one full backup once the next full backup closes it. |
+| `scratchSize` | yes | yes | Dedicated staging volume, for example `200Gi`. Set it for large databases. |
+
+```yaml
+schedules:
+  - name: weekly
+    enabled: true
+    cron: "0 2 * * 0"                      # full backup on Sunday
+    retention: {type: count, count: 4}     # keeps four chains
+    parameters:
+      incrementalSchedule: "0 2 * * 1-6"   # incrementals on the other days
+      aggregate: true
+```
+
+Retention counts chains: a full backup together with its incrementals.
+
 ## Importing backups
 
 A `BackupImport` lists a BackupStorage and creates a `Backup` for every Neo4j backup artifact
