@@ -336,6 +336,12 @@ func (p *Provider) SyncRestore(c *controller.Context, restore *backupv1alpha1.Re
 	params := neobackup.Neo4jRestoreParameters{Databases: []string{"neo4j"}}
 	_ = decodeRaw(restore.Spec.Parameters, &params)
 	params.Databases = defaultBackupDatabases(params.Databases)
+	if isDataSourceRestore(c, restore) {
+		// A new Neo4j always has an empty default database, which the seed
+		// has to replace.
+		params.Overwrite = true
+		params.ForceOffline = true
+	}
 	desired := &neo4jv1.Neo4jRestore{
 		ObjectMeta: metav1.ObjectMeta{Name: restore.Name, Namespace: restore.Namespace},
 	}
@@ -377,6 +383,13 @@ func (p *Provider) SyncRestore(c *controller.Context, restore *backupv1alpha1.Re
 		out.State = backupv1alpha1.RestoreStatePending
 	}
 	return out, nil
+}
+
+// isDataSourceRestore tells whether the runtime created the Restore to seed the
+// Instance from spec.dataSource.
+func isDataSourceRestore(c *controller.Context, restore *backupv1alpha1.Restore) bool {
+	return restore.Name == c.Name()+controller.DataSourceRestoreNameSuffix &&
+		metav1.IsControlledBy(restore, c.Instance())
 }
 
 func sourceBackup(c *controller.Context, restore *backupv1alpha1.Restore) (*backupv1alpha1.Backup, *controller.RestoreExecutionStatus, error) {
