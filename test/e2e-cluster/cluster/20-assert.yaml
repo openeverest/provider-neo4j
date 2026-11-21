@@ -15,3 +15,10 @@ status:
   serverSummary:
     servers: 4
     ready: 4
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: graph-pdb
+spec:
+  minAvailable: 3

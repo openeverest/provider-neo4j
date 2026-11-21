@@ -19,3 +19,23 @@ status:
   serverSummary:
     servers: 3
     ready: 3
+---
+# A drain may take one member at a time.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: graph-pdb
+spec:
+  minAvailable: 2
+---
+# Members prefer a node each.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: graph-primary-0
+spec:
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - podAffinityTerm:
+            topologyKey: kubernetes.io/hostname

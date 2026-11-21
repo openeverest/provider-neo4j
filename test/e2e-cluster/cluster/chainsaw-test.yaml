@@ -4,8 +4,9 @@ metadata:
   name: e2e-cluster
 spec:
   description: |
-    An Enterprise cluster of three primaries forms with cluster TLS, replicates
-    a write to every primary, and grows by a read pool without losing data.
+    An Enterprise cluster of three primaries forms with cluster TLS, a
+    PodDisruptionBudget and spread members, replicates a write to every
+    primary, and grows by a read pool without losing data.
   catch:
     - script:
         content: kubectl -n $NAMESPACE get instance,neo4j,pods,svc,certificate,pdb -o yaml
