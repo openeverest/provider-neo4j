@@ -4,7 +4,7 @@ metadata:
   name: itest-preset
 spec:
   edition: community
-  version: "2026.07.1"
+  version: "2026.10.2"
   topology:
     mode: Standalone
   # TLS is on by default, with the provider's own CA.

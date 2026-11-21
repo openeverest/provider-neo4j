@@ -116,7 +116,7 @@ spec:
     name: neo4j
   topology:
     type: standalone
-  version: "2026.07.1"
+  version: "2026.10.2"
   components:
     engine:
       replicas: 1
@@ -140,7 +140,7 @@ spec:
     name: neo4j
   topology:
     type: cluster
-  version: "2026.07.1"
+  version: "2026.10.2"
   parameters:
     edition: enterprise
     licenseAcceptance: "yes"
