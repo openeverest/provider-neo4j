@@ -1,0 +1,23 @@
+apiVersion: core.openeverest.io/v1alpha1
+kind: Instance
+metadata:
+  name: graph
+spec:
+  providerRef:
+    name: neo4j
+  topology:
+    type: cluster
+  version: "2026.10.2"
+  # Clustering needs Neo4j Enterprise; "eval" accepts the evaluation license.
+  parameters:
+    edition: enterprise
+    licenseAcceptance: eval
+  components:
+    engine:
+      replicas: 3
+      resources:
+        limits:
+          cpu: 500m
+          memory: 2Gi
+      storage:
+        size: 2Gi

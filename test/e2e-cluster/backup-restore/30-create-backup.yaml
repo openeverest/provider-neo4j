@@ -1,0 +1,13 @@
+apiVersion: backup.openeverest.io/v1alpha1
+kind: Backup
+metadata:
+  name: first
+spec:
+  origin:
+    type: Instance
+    instanceRef:
+      name: source
+  classRef:
+    name: neo4j-backup
+  storageRef:
+    name: seaweedfs-s3

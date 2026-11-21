@@ -239,6 +239,20 @@ make test-integration-monitoring # spec.monitoring.sources.metrics.policy
 The Neo4j operator is scaled to 0 in these suites: each writes the status the operator would
 report, and asserts what the provider renders and reports.
 
+The e2e-cluster suites run a real Neo4j through the operator and query it over Bolt:
+
+```bash
+make deploy-cert-manager
+make deploy-provider-e2e
+make test-e2e-cluster                 # every suite, or one of:
+make test-e2e-cluster-standalone      # default TLS, version upgrade, LoadBalancer
+make test-e2e-cluster-backup-restore  # backup, in-place restore, seeding a new Instance
+make test-e2e-cluster-cluster         # three primaries, adding a read pool
+```
+
+The backup and cluster suites run Neo4j Enterprise under its evaluation license
+(`licenseAcceptance: eval`).
+
 Run `make verify` before committing generated files. The pinned Neo4j operator is `v1.1.0`;
 CRDs in `charts/provider-neo4j/crds/` are copied from that version by `make generate`.
 

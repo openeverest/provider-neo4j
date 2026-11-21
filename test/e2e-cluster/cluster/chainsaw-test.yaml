@@ -1,0 +1,63 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: e2e-cluster
+spec:
+  description: |
+    An Enterprise cluster of three primaries forms with cluster TLS, replicates
+    a write to every primary, and grows by a read pool without losing data.
+  catch:
+    - script:
+        content: kubectl -n $NAMESPACE get instance,neo4j,pods,svc,certificate,pdb -o yaml
+    - script:
+        content: kubectl -n $NAMESPACE get events --sort-by=.lastTimestamp | tail -40
+    - podLogs:
+        namespace: provider-system
+        selector: app.kubernetes.io/name=provider-neo4j
+        tail: 100
+    - podLogs:
+        namespace: provider-system
+        selector: app.kubernetes.io/name=neo4j-operator
+        tail: 100
+  steps:
+    - name: provider-and-operator-running
+      try:
+        - assert:
+            file: 00-assert.yaml
+
+    - name: create-cluster
+      try:
+        - apply:
+            file: 10-create-instance.yaml
+        - assert:
+            timeout: 15m
+            file: 10-assert.yaml
+
+    - name: write-is-replicated
+      try:
+        - script:
+            content: |
+              set -eu
+              ../cypher.sh graph "CREATE (:E2E {v: 1})"
+              secret=$(kubectl -n $NAMESPACE get instance graph -o jsonpath='{.status.connectionSecretRef.name}')
+              password=$(kubectl -n $NAMESPACE get secret "$secret" -o jsonpath='{.data.password}' | base64 -d)
+              # bolt+ssc reads from the member itself instead of routing.
+              for pod in graph-primary-0 graph-primary-1 graph-primary-2; do
+                count=$(kubectl -n $NAMESPACE exec "$pod" -- cypher-shell -a bolt+ssc://localhost:7687 \
+                  -u neo4j -p "$password" --access-mode read --format plain \
+                  "MATCH (n:E2E) RETURN count(n) AS c" | tail -n 1)
+                test "$count" = 1
+              done
+
+    - name: add-read-pool
+      try:
+        - patch:
+            file: 20-add-read-pool.yaml
+        - assert:
+            timeout: 15m
+            file: 20-assert.yaml
+        - script:
+            content: |
+              set -eu
+              count=$(../cypher.sh graph "MATCH (n:E2E) RETURN count(n) AS c" | tail -n 1)
+              test "$count" = 1

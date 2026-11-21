@@ -1,0 +1,12 @@
+apiVersion: core.openeverest.io/v1alpha1
+kind: Instance
+metadata:
+  name: graph
+spec:
+  components:
+    read:
+      replicas: 1
+      resources:
+        limits:
+          cpu: 500m
+          memory: 2Gi
