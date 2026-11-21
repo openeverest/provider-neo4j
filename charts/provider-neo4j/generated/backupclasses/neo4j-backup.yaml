@@ -101,8 +101,9 @@ spec:
           type: boolean
         restoreMetadata:
           description: |-
-            RestoreMetadata reapplies backed-up users, roles and privileges when the
-            source supports it.
+            RestoreMetadata is deprecated and ignored: the Neo4j operator reapplies
+            users, roles and privileges only from PVC backups, and failed the
+            restore of an object-storage backup that asked for it.
           type: boolean
       type: object
       x-kubernetes-validations:

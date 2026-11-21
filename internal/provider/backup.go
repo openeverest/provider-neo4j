@@ -43,6 +43,9 @@ const (
 	neo4jScheduleCredentialPrefix = "everest-neo4j-"
 )
 
+const restoreMetadataIgnored = "restoreMetadata is deprecated and was ignored: " +
+	"users, roles and privileges cannot be restored from an object-storage backup"
+
 func defaultBackupDatabases(databases []string) []string {
 	if len(databases) == 0 {
 		return []string{"neo4j"}
@@ -337,13 +340,16 @@ func (p *Provider) SyncRestore(c *controller.Context, restore *backupv1alpha1.Re
 		ObjectMeta: metav1.ObjectMeta{Name: restore.Name, Namespace: restore.Namespace},
 	}
 	if _, err := controllerutil.CreateOrUpdate(c.Context(), c.Client(), desired, func() error {
-		desired.Spec = neo4jv1.Neo4jRestoreSpec{
-			Neo4jRef:        neo4jv1.Neo4jRef{Name: c.Name()},
-			Databases:       params.Databases,
-			Overwrite:       params.Overwrite,
-			ForceOffline:    params.ForceOffline,
-			RestoreMetadata: params.RestoreMetadata,
-			Source:          neo4jv1.RestoreSource{BackupRef: name},
+		// The spec is immutable: leave a Neo4jRestore an older provider
+		// created as it is.
+		if desired.CreationTimestamp.IsZero() {
+			desired.Spec = neo4jv1.Neo4jRestoreSpec{
+				Neo4jRef:     neo4jv1.Neo4jRef{Name: c.Name()},
+				Databases:    params.Databases,
+				Overwrite:    params.Overwrite,
+				ForceOffline: params.ForceOffline,
+				Source:       neo4jv1.RestoreSource{BackupRef: name},
+			}
 		}
 		return controllerutil.SetControllerReference(restore, desired, c.Client().Scheme())
 	}); err != nil {
@@ -353,6 +359,9 @@ func (p *Provider) SyncRestore(c *controller.Context, restore *backupv1alpha1.Re
 		OperatorRestoreRef: &commonv1alpha1.TypedObjectRef{
 			Group: neo4jv1.GroupVersion.Group, Kind: "Neo4jRestore", Name: desired.Name,
 		},
+	}
+	if params.RestoreMetadata {
+		out.Message = restoreMetadataIgnored
 	}
 	switch desired.Status.Phase {
 	case neo4jv1.RunPhaseSucceeded:

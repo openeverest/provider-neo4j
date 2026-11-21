@@ -30,8 +30,9 @@ type Neo4jRestoreParameters struct {
 	// +optional
 	ForceOffline bool `json:"forceOffline,omitempty"`
 
-	// RestoreMetadata reapplies backed-up users, roles and privileges when the
-	// source supports it.
+	// RestoreMetadata is deprecated and ignored: the Neo4j operator reapplies
+	// users, roles and privileges only from PVC backups, and failed the
+	// restore of an object-storage backup that asked for it.
 	// +optional
 	RestoreMetadata bool `json:"restoreMetadata,omitempty"`
 
