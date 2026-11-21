@@ -108,6 +108,76 @@ func TestSyncRestoreSeedOverwritesTheEmptyDatabase(t *testing.T) {
 	}
 }
 
+func TestBackupScheduleSpec(t *testing.T) {
+	t.Parallel()
+	destination := neo4jv1.BackupDestination{Type: neo4jv1.BackupDestinationS3, URL: "s3://bucket/graph"}
+	count := int32(4)
+	schedule := corev1alpha1.InstanceBackupSchedule{
+		Name: "weekly", Enabled: true, Cron: "0 2 * * 0",
+		Retention: &corev1alpha1.BackupScheduleRetention{Type: corev1alpha1.BackupScheduleRetentionTypeCount, Count: &count},
+	}
+
+	// Without parameters a schedule renders what it rendered before they
+	// existed, so upgrading the provider changes no Neo4jBackupSchedule.
+	got, err := backupScheduleSpec("graph", schedule, destination)
+	require.NoError(t, err)
+	assert.Equal(t, neo4jv1.Neo4jBackupScheduleSpec{
+		Neo4jRef: neo4jv1.Neo4jRef{Name: "graph"},
+		Full:     neo4jv1.FullCadence{Schedule: "0 2 * * 0", Retention: &neo4jv1.BackupRetention{KeepLast: &count}},
+		BackupTemplate: neo4jv1.BackupTemplate{
+			Databases:   []string{"neo4j"},
+			Destination: destination,
+		},
+	}, got)
+
+	schedule.Enabled = false
+	schedule.Parameters = rawExtension(t, map[string]any{
+		"databases":           []string{"orders", "customers"},
+		"incrementalSchedule": "0 2 * * 1-6",
+		"aggregate":           true,
+		"scratchSize":         "200Gi",
+		// A schedule's cron always takes full backups.
+		"type": "Incremental",
+	})
+	got, err = backupScheduleSpec("graph", schedule, destination)
+	require.NoError(t, err)
+	assert.True(t, got.Suspend)
+	assert.Equal(t, "0 2 * * 0", got.Full.Schedule)
+	assert.Equal(t, []string{"orders", "customers"}, got.BackupTemplate.Databases)
+	require.NotNil(t, got.Incremental)
+	assert.Equal(t, "0 2 * * 1-6", got.Incremental.Schedule)
+	require.NotNil(t, got.Aggregate)
+	assert.True(t, got.Aggregate.Enabled)
+	require.NotNil(t, got.BackupTemplate.Scratch)
+	assert.Equal(t, "200Gi", got.BackupTemplate.Scratch.Size)
+}
+
+func TestValidateRejectsBrokenIncrementalSchedule(t *testing.T) {
+	t.Parallel()
+	one := int32(1)
+	engine := validEngine()
+	engine.Replicas = &one
+	instance := &corev1alpha1.Instance{
+		Spec: corev1alpha1.InstanceSpec{
+			Topology:   &corev1alpha1.TopologySpec{Type: common.TopologyStandalone},
+			Parameters: rawExtension(t, map[string]any{"edition": "enterprise", "licenseAcceptance": "eval"}),
+			Components: map[string]corev1alpha1.ComponentSpec{common.ComponentEngine: engine},
+			Backup: &corev1alpha1.InstanceBackupSpec{
+				Enabled: true,
+				Storages: []corev1alpha1.InstanceBackupStorage{{
+					Schedules: []corev1alpha1.InstanceBackupSchedule{
+						{Name: "ok", Cron: "0 2 * * 0", Parameters: rawExtension(t, map[string]any{"incrementalSchedule": "0 2 * * 1-6"})},
+						{Name: "broken", Cron: "0 3 * * 0", Parameters: rawExtension(t, map[string]any{"incrementalSchedule": "hourly"})},
+					},
+				}},
+			},
+		},
+	}
+	result := (&Provider{}).Validate(controller.ValidationInput{Instance: instance})
+	require.Len(t, result.Errors, 1)
+	assert.Equal(t, "spec.backup.storages[0].schedules[1].parameters.incrementalSchedule", result.Errors[0].Field)
+}
+
 func TestBackupRetention(t *testing.T) {
 	t.Parallel()
 	count := int32(5)
