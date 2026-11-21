@@ -133,7 +133,7 @@ presets:
   - name: standalone
     enabled: true
     spec:
-      version: "2026.07.1"
+      version: "2026.10.2"
       topology:
         type: standalone
       components:
@@ -151,7 +151,7 @@ presets:
   - name: cluster
     enabled: false
     spec:
-      version: "2026.07.1"
+      version: "2026.10.2"
       topology:
         type: cluster
       parameters:
