@@ -67,10 +67,18 @@ helm upgrade --install provider-neo4j charts/provider-neo4j \
   --namespace everest-system --create-namespace
 ```
 
-The operator watches `default` by default. Set `operator.watchNamespaces` to the namespaces
-where OpenEverest Instances run, or set `operator.clusterWide: true` together with
-`operator.watchNamespaces: []` to watch every namespace. The operator namespace itself is
-deliberately excluded by the upstream controller.
+The bundled Neo4j operator watches every namespace, which lets it read Secrets and bind RBAC
+cluster-wide. To restrict it, list the namespaces where OpenEverest Instances run:
+
+```yaml
+operator:
+  clusterWide: false
+  watchNamespaces: [team-a, team-b]
+```
+
+An Instance in a namespace the operator does not watch gets no pods and no error. The upstream
+controller never watches its own namespace, so do not create Instances in the release
+namespace.
 
 ## Presets
 
