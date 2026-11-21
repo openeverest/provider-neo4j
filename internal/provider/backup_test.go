@@ -7,6 +7,7 @@ import (
 	neo4jv1 "github.com/neo4j/neo4j-kubernetes-operator/src/api/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -106,6 +107,39 @@ func TestSyncRestoreSeedOverwritesTheEmptyDatabase(t *testing.T) {
 		assert.Equal(t, tc.overwrite, got.Spec.Overwrite, tc.restore.Name)
 		assert.Equal(t, tc.overwrite, got.Spec.ForceOffline, tc.restore.Name)
 	}
+}
+
+// A schedule prunes the Neo4jBackups it emitted. The Backup that mirrored one
+// must go with it: taking the backup again would store a new full backup
+// under an old name, outside the schedule's retention.
+func TestSyncBackupDropsAPrunedScheduledBackup(t *testing.T) {
+	t.Parallel()
+	scheme := runtime.NewScheme()
+	require.NoError(t, corev1alpha1.AddToScheme(scheme))
+	require.NoError(t, backupv1alpha1.AddToScheme(scheme))
+	require.NoError(t, neo4jv1.AddToScheme(scheme))
+	instance := &corev1alpha1.Instance{ObjectMeta: metav1.ObjectMeta{Name: "graph", Namespace: "default"}}
+	backup := &backupv1alpha1.Backup{
+		ObjectMeta: metav1.ObjectMeta{Name: "graph-nightly-20261121-0200-f", Namespace: "default"},
+		Spec: backupv1alpha1.BackupSpec{
+			Origin: backupv1alpha1.BackupOrigin{
+				Type: backupv1alpha1.BackupOriginTypeInstance, InstanceRef: &commonv1alpha1.ObjectRef{Name: "graph"},
+			},
+			StorageRef:   commonv1alpha1.ObjectRef{Name: "s3"},
+			ScheduleName: "nightly",
+		},
+		Status: backupv1alpha1.BackupStatus{State: backupv1alpha1.BackupStateSucceeded},
+	}
+	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(instance, backup).WithStatusSubresource(backup).Build()
+	c := controller.NewContext(context.Background(), cl, instance, common.ProviderName)
+
+	status, err := (&Provider{}).SyncBackup(c, backup)
+	require.NoError(t, err)
+	assert.Equal(t, backupv1alpha1.BackupStateSucceeded, status.State)
+
+	key := types.NamespacedName{Namespace: "default", Name: backup.Name}
+	assert.True(t, apierrors.IsNotFound(cl.Get(context.Background(), key, &backupv1alpha1.Backup{})), "the Backup is deleted")
+	assert.True(t, apierrors.IsNotFound(cl.Get(context.Background(), key, &neo4jv1.Neo4jBackup{})), "and no backup is taken")
 }
 
 func TestBackupScheduleSpec(t *testing.T) {

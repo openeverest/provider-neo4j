@@ -276,6 +276,23 @@ func (p *Provider) SyncBackup(c *controller.Context, backup *backupv1alpha1.Back
 		return controller.BackupExecutionStatus{}, fmt.Errorf("get Neo4jBackup: %w", err)
 	}
 	created := apierrors.IsNotFound(err)
+	if created && backup.Spec.ScheduleName != "" {
+		// The Backup mirrors a Neo4jBackup its schedule emitted, and the
+		// schedule has pruned it. Creating it again would take a new backup
+		// under the name of an old one.
+		if err := c.Client().Delete(c.Context(), backup); err != nil && !apierrors.IsNotFound(err) {
+			return controller.BackupExecutionStatus{}, fmt.Errorf("delete pruned scheduled Backup: %w", err)
+		}
+		state := backup.Status.State
+		if state == "" {
+			state = backupv1alpha1.BackupStateFailed
+		}
+		return controller.BackupExecutionStatus{
+			State:             state,
+			OperatorBackupRef: backup.Status.OperatorBackupRef,
+			Message:           "the schedule's retention removed this backup",
+		}, nil
+	}
 	params := neobackup.Neo4jBackupParameters{Type: "Full", Databases: []string{"neo4j"}}
 	_ = decodeRaw(backup.Spec.Parameters, &params)
 	if params.Type == "" {
