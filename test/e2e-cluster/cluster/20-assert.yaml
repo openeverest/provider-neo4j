@@ -1,0 +1,17 @@
+apiVersion: core.openeverest.io/v1alpha1
+kind: Instance
+metadata:
+  name: graph
+status:
+  phase: Provisioned
+  (conditions[?type == 'Ready'].status | [0]): "True"
+  (conditions[?type == 'Available'].status | [0]): "True"
+---
+apiVersion: neo4j.com/v1
+kind: Neo4j
+metadata:
+  name: graph
+status:
+  serverSummary:
+    servers: 4
+    ready: 4

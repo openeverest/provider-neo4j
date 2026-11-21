@@ -1,0 +1,87 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: e2e-backup-restore
+spec:
+  description: |
+    An Enterprise standalone backs up to S3-compatible storage. Restoring the
+    Backup in place drops what was written after it, and a new Instance seeded
+    from the same Backup starts with the backed-up data.
+  catch:
+    - script:
+        content: kubectl -n $NAMESPACE get instance,neo4j,backup,neo4jbackup,restore,neo4jrestore,backupstorage,pods,jobs -o yaml
+    - script:
+        content: kubectl -n $NAMESPACE get events --sort-by=.lastTimestamp | tail -40
+    - podLogs:
+        namespace: provider-system
+        selector: app.kubernetes.io/name=provider-neo4j
+        tail: 100
+    - podLogs:
+        namespace: provider-system
+        selector: app.kubernetes.io/name=neo4j-operator
+        tail: 100
+  steps:
+    - name: provider-and-operator-running
+      try:
+        - assert:
+            file: 00-assert.yaml
+
+    - name: deploy-seaweedfs
+      try:
+        - script:
+            timeout: 5m
+            content: |
+              kubectl apply -f ${PROVIDER_ROOT_PATH}/dev/resources/seaweedfs.yaml
+              kubectl -n seaweedfs wait deploy/seaweedfs --for=condition=Available --timeout=240s
+        - apply:
+            file: 10-backup-storage.yaml
+        - assert:
+            file: 10-assert.yaml
+
+    - name: create-instance
+      try:
+        - apply:
+            file: 20-create-instance.yaml
+        - assert:
+            timeout: 10m
+            file: 20-assert.yaml
+
+    - name: back-up
+      try:
+        - script:
+            content: |
+              ../cypher.sh source "CREATE (:E2E {v: 1})"
+        - apply:
+            file: 30-create-backup.yaml
+        - assert:
+            timeout: 10m
+            file: 30-assert.yaml
+
+    - name: restore-in-place
+      try:
+        - script:
+            content: |
+              ../cypher.sh source "CREATE (:E2E {v: 2})"
+        - apply:
+            file: 40-create-restore.yaml
+        - assert:
+            timeout: 10m
+            file: 40-assert.yaml
+        - script:
+            content: |
+              set -eu
+              count=$(../cypher.sh source "MATCH (n:E2E) RETURN count(n) AS c" | tail -n 1)
+              test "$count" = 1
+
+    - name: seed-new-instance
+      try:
+        - apply:
+            file: 50-create-seeded-instance.yaml
+        - assert:
+            timeout: 10m
+            file: 50-assert.yaml
+        - script:
+            content: |
+              set -eu
+              count=$(../cypher.sh seeded "MATCH (n:E2E) RETURN count(n) AS c" | tail -n 1)
+              test "$count" = 1
