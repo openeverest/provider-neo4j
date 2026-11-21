@@ -158,6 +158,17 @@ spec:
       replicas: 1
 ```
 
+### High availability
+
+A Cluster gets two defaults:
+
+- a PodDisruptionBudget that lets a node drain take one member at a time, across all pools;
+- a preference to run each member of a pool on its own node (soft pod anti-affinity).
+  `spec.components.engine.schedulingPolicy.affinity` replaces it.
+
+The preference is part of the pod template. A cluster created by provider 0.1.x does not
+get it, because adding it would restart every member.
+
 ### External access
 
 `spec.components.engine.service.serviceType` exposes Bolt, HTTP and HTTPS through a
