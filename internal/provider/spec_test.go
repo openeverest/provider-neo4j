@@ -161,3 +161,64 @@ func TestLicenseAndTopologyValidation(t *testing.T) {
 	require.Len(t, result.Errors, 1)
 	assert.Equal(t, "spec.parameters.licenseAcceptance", result.Errors[0].Field)
 }
+
+func TestBuildConnectivityLoadBalancerSourceRanges(t *testing.T) {
+	t.Parallel()
+	for name, tc := range map[string]struct {
+		service *corev1alpha1.Service
+		want    []string
+	}{
+		"the operator refuses a LoadBalancer without ranges, so unset means open": {
+			service: &corev1alpha1.Service{ServiceType: corev1.ServiceTypeLoadBalancer},
+			want:    []string{"0.0.0.0/0"},
+		},
+		"ranges are passed on, bare addresses as single hosts": {
+			service: &corev1alpha1.Service{
+				ServiceType: corev1.ServiceTypeLoadBalancer,
+				LoadBalancerService: &corev1alpha1.LoadBalancerService{
+					SourceRanges: corev1alpha1.SourceRanges{"10.0.0.0/8", "192.0.2.7"},
+				},
+			},
+			want: []string{"10.0.0.0/8", "192.0.2.7/32"},
+		},
+		"ranges left over from a LoadBalancer do not reach another Service type": {
+			service: &corev1alpha1.Service{
+				ServiceType: corev1.ServiceTypeNodePort,
+				LoadBalancerService: &corev1alpha1.LoadBalancerService{
+					SourceRanges: corev1alpha1.SourceRanges{"10.0.0.0/8"},
+				},
+			},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			engine := validEngine()
+			engine.Service = tc.service
+			got := buildConnectivity(engine).Service
+			assert.Equal(t, string(tc.service.ServiceType), string(got.Type))
+			assert.Equal(t, tc.want, got.LoadBalancerSourceRanges)
+		})
+	}
+}
+
+func TestValidateRejectsInvalidSourceRange(t *testing.T) {
+	t.Parallel()
+	one := int32(1)
+	engine := validEngine()
+	engine.Replicas = &one
+	engine.Service = &corev1alpha1.Service{
+		ServiceType: corev1.ServiceTypeLoadBalancer,
+		LoadBalancerService: &corev1alpha1.LoadBalancerService{
+			SourceRanges: corev1alpha1.SourceRanges{"10.0.0.0/8", "office"},
+		},
+	}
+	instance := &corev1alpha1.Instance{
+		Spec: corev1alpha1.InstanceSpec{
+			Topology:   &corev1alpha1.TopologySpec{Type: common.TopologyStandalone},
+			Components: map[string]corev1alpha1.ComponentSpec{common.ComponentEngine: engine},
+		},
+	}
+	result := (&Provider{}).Validate(controller.ValidationInput{Instance: instance})
+	require.Len(t, result.Errors, 1)
+	assert.Equal(t, "spec.components[engine].service.loadBalancerService.sourceRanges[1]", result.Errors[0].Field)
+}

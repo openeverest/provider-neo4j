@@ -1,0 +1,8 @@
+apiVersion: neo4j.com/v1
+kind: Neo4j
+metadata:
+  name: test-exposure
+spec:
+  connectivity:
+    service:
+      (length(loadBalancerSourceRanges || `[]`) > `0`): true

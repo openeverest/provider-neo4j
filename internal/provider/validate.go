@@ -3,6 +3,7 @@ package provider
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"slices"
 	"strings"
 
@@ -113,6 +114,14 @@ func validateComponents(in *corev1alpha1.Instance, edition definition.Edition) f
 		default:
 			errs = append(errs, field.NotSupported(path.Child("service", "serviceType"), engine.Service.ServiceType,
 				[]corev1.ServiceType{corev1.ServiceTypeClusterIP, corev1.ServiceTypeNodePort, corev1.ServiceTypeLoadBalancer}))
+		}
+		if lb := engine.Service.LoadBalancerService; lb != nil {
+			for i, r := range lb.SourceRanges {
+				if _, _, err := net.ParseCIDR(r); err != nil && net.ParseIP(r) == nil {
+					errs = append(errs, field.Invalid(path.Child("service", "loadBalancerService", "sourceRanges").Index(i), r,
+						"must be an IP address or a CIDR"))
+				}
+			}
 		}
 	}
 	switch in.GetTopologyType() {
