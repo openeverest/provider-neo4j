@@ -47,6 +47,9 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Backup imports list BackupStorages outside an Instance's reconcile.
+	p.SetClient(r.GetManager().GetClient())
+
 	if err := r.Start(ctx); err != nil {
 		l.Error(err, "unable to start reconciler")
 		os.Exit(1)

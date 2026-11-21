@@ -6,10 +6,11 @@ spec:
   description: |
     An Enterprise standalone backs up to S3-compatible storage. Restoring the
     Backup in place drops what was written after it, and a new Instance seeded
-    from the same Backup starts with the backed-up data.
+    from the same Backup starts with the backed-up data. A BackupImport finds
+    the artifact in the storage, and a third Instance is seeded from it by URL.
   catch:
     - script:
-        content: kubectl -n $NAMESPACE get instance,neo4j,backup,neo4jbackup,restore,neo4jrestore,backupstorage,pods,jobs -o yaml
+        content: kubectl -n $NAMESPACE get instance,neo4j,backup,neo4jbackup,restore,neo4jrestore,backupimport,backupstorage,pods,jobs -o yaml
     - script:
         content: kubectl -n $NAMESPACE get events --sort-by=.lastTimestamp | tail -40
     - podLogs:
@@ -85,3 +86,45 @@ spec:
               set -eu
               count=$(../cypher.sh seeded "MATCH (n:E2E) RETURN count(n) AS c" | tail -n 1)
               test "$count" = 1
+
+    - name: import-backups
+      try:
+        - apply:
+            file: 60-create-backup-import.yaml
+        - assert:
+            timeout: 3m
+            file: 60-assert.yaml
+      # The import created these Backups, so chainsaw does not delete them,
+      # and the BackupStorage cannot go while a Backup references it.
+      cleanup:
+        - script:
+            timeout: 3m
+            content: |
+              kubectl -n $NAMESPACE delete backup -l backup.openeverest.io/backup-import=scan --timeout=170s
+
+    - name: seed-from-imported-backup
+      try:
+        - script:
+            content: |
+              set -eu
+              # The imported Backup's name is a hash of its path: find the one
+              # for this test's artifact.
+              backup=$(kubectl -n $NAMESPACE get backup --no-headers \
+                -o custom-columns=NAME:.metadata.name,PATH:.spec.origin.external.path \
+                | grep "/$NAMESPACE/source/" | head -n 1 | awk '{print $1}')
+              test -n "$backup"
+              sed "s/__BACKUP__/$backup/" 70-create-imported-instance.yaml | kubectl -n $NAMESPACE apply -f -
+        - assert:
+            timeout: 10m
+            file: 70-assert.yaml
+        - script:
+            content: |
+              set -eu
+              count=$(../cypher.sh imported "MATCH (n:E2E) RETURN count(n) AS c" | tail -n 1)
+              test "$count" = 1
+      # kubectl created the Instance, so chainsaw does not delete it, and the
+      # BackupStorage cannot go while an Instance uses it.
+      cleanup:
+        - script:
+            timeout: 5m
+            content: kubectl -n $NAMESPACE delete instance imported --ignore-not-found --timeout=280s

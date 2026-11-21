@@ -25,6 +25,7 @@ operator's `Neo4j`, `Neo4jBackup`, `Neo4jBackupSchedule`, and `Neo4jRestore` res
 | Prometheus metrics | Enterprise, activated by a monitoring destination or `spec.monitoring.sources.metrics.policy: Always` (rejected on Community) |
 | On-demand and scheduled backups | Enterprise, S3-compatible BackupStorage |
 | Restore / initial data-source seed | Yes; point-in-time recovery is not exposed |
+| Backup import | Yes; `BackupImport` finds Neo4j backup artifacts (`<database>-<time>.backup`) in a BackupStorage |
 
 Neo4j Enterprise licensing is opt-in. Set `spec.parameters.edition: enterprise` and
 `spec.parameters.licenseAcceptance: "yes"` for production or `eval` for evaluation. Community
@@ -191,6 +192,18 @@ components:
 The UI takes CPU in cores, fractions included (`0.5`), and memory and disk in Gi, and writes
 them as Kubernetes quantity strings; a value it did not change keeps its stored form (for
 example `2048Mi`). Disk size cannot be decreased.
+
+## Importing backups
+
+A `BackupImport` lists a BackupStorage and creates a `Backup` for every Neo4j backup artifact
+(`<database>-<time>.backup`) under its prefix, including ones written by another cluster or
+by `neo4j-admin database backup`. Restore one like any other Backup, in place or as a new
+Instance's `spec.dataSource`. The Instance must have the storage in `spec.backup.storages`,
+because its servers read the artifact with that storage's credentials.
+
+An imported Backup holds one database and restores into the database it was taken from; set
+`parameters.databases` on the Restore to restore it under another name. The provider never
+deletes imported artifacts.
 
 ## Status
 
