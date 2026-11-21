@@ -229,6 +229,10 @@ report, and asserts what the provider renders and reports.
 Run `make verify` before committing generated files. The pinned Neo4j operator is `v1.1.0`;
 CRDs in `charts/provider-neo4j/crds/` are copied from that version by `make generate`.
 
+Dependabot proposes new operator releases by bumping the subchart in `Chart.yaml`. It cannot
+bump the `replace` directive that pins the operator's API module in `go.mod`, so finish its PR
+by hand: set the same version there, run `go mod tidy` and `make generate`, and commit.
+
 ## License
 
 Apache License 2.0. See [LICENSE](LICENSE). Neo4j Community and Enterprise images retain
