@@ -150,7 +150,7 @@ test-integration: ## Run all integration tests against the current cluster.
 	. ./test/vars.sh && chainsaw test --config ./test/integration/.chainsaw.yaml ./test/integration
 
 .PHONY: test-integration-core
-test-integration-core: ## Run core integration tests (standalone, cluster, admission).
+test-integration-core: ## Run core integration tests (standalone, cluster, exposure, admission).
 	. ./test/vars.sh && chainsaw test --config ./test/integration/.chainsaw.yaml ./test/integration/core
 
 .PHONY: test-integration-presets

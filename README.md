@@ -149,6 +149,24 @@ spec:
       replicas: 1
 ```
 
+### External access
+
+`spec.components.engine.service.serviceType` exposes Bolt, HTTP and HTTPS through a
+`ClusterIP` (default), `NodePort` or `LoadBalancer` Service:
+
+```yaml
+components:
+  engine:
+    service:
+      serviceType: LoadBalancer
+      loadBalancerService:
+        sourceRanges: ["203.0.113.0/24"]
+```
+
+A LoadBalancer without `sourceRanges` is open to `0.0.0.0/0`: the Neo4j operator requires
+source ranges, and OpenEverest treats unset ranges as unrestricted. Set them for anything
+reachable from the internet; the UI does not offer the field yet.
+
 The UI takes CPU in cores, fractions included (`0.5`), and memory and disk in Gi, and writes
 them as Kubernetes quantity strings; a value it did not change keeps its stored form (for
 example `2048Mi`). Disk size cannot be decreased.
@@ -192,7 +210,7 @@ version pinned in `go.mod`; CI builds the OpenEverest controller from the same v
 make install-crds
 make deploy-provider-ci
 make test-integration            # every suite, or one of:
-make test-integration-core       # standalone, cluster, admission webhook
+make test-integration-core       # standalone, cluster, exposure, admission webhook
 make test-integration-presets    # the chart's ClusterInstancePresets
 make test-integration-monitoring # spec.monitoring.sources.metrics.policy
 ```

@@ -1,0 +1,13 @@
+apiVersion: core.openeverest.io/v1alpha1
+kind: Instance
+metadata:
+  name: test-exposure
+spec:
+  components:
+    engine:
+      service:
+        serviceType: LoadBalancer
+        loadBalancerService:
+          sourceRanges:
+            - 10.0.0.0/8
+            - 192.0.2.7

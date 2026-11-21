@@ -205,6 +205,11 @@ func buildStorage(storage *corev1alpha1.Storage) (*neo4jv1.StorageSpec, error) {
 	}, nil
 }
 
+// openSourceRanges is what an unrestricted LoadBalancer gets: the operator
+// refuses a LoadBalancer without source ranges, while OpenEverest documents
+// unset ranges as "no limitations".
+var openSourceRanges = []string{"0.0.0.0/0"}
+
 func buildConnectivity(engine corev1alpha1.ComponentSpec) *neo4jv1.ConnectivitySpec {
 	service := &neo4jv1.ConnectivityServiceSpec{
 		Type:   neo4jv1.ServiceType(corev1.ServiceTypeClusterIP),
@@ -213,8 +218,8 @@ func buildConnectivity(engine corev1alpha1.ComponentSpec) *neo4jv1.ConnectivityS
 	if engine.Service != nil {
 		service.Type = neo4jv1.ServiceType(engine.Service.ServiceType)
 		service.Annotations = engine.Service.Annotations
-		if engine.Service.LoadBalancerService != nil {
-			service.LoadBalancerSourceRanges = engine.Service.LoadBalancerService.SourceRanges
+		if engine.Service.ServiceType == corev1.ServiceTypeLoadBalancer {
+			service.LoadBalancerSourceRanges = loadBalancerSourceRanges(engine.Service.LoadBalancerService)
 		}
 	}
 	return &neo4jv1.ConnectivitySpec{
@@ -223,6 +228,13 @@ func buildConnectivity(engine corev1alpha1.ComponentSpec) *neo4jv1.ConnectivityS
 		},
 		Service: service,
 	}
+}
+
+func loadBalancerSourceRanges(lb *corev1alpha1.LoadBalancerService) []string {
+	if lb == nil || len(lb.SourceRanges) == 0 {
+		return openSourceRanges
+	}
+	return lb.SourceRanges.NormalizedSourceRanges()
 }
 
 func buildScheduling(engine corev1alpha1.ComponentSpec) *neo4jv1.SchedulingSpec {
