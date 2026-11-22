@@ -14,6 +14,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 
 	corev1alpha1 "github.com/openeverest/openeverest/v2/api/core/v1alpha1"
@@ -31,6 +32,8 @@ var _ controller.MonitoringSourcesProvider = (*Provider)(nil)
 // Provider translates OpenEverest Instances to Neo4j operator resources.
 type Provider struct {
 	controller.BaseProvider
+
+	client client.Client
 }
 
 func New() *Provider {

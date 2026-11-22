@@ -25,6 +25,7 @@ operator's `Neo4j`, `Neo4jBackup`, `Neo4jBackupSchedule`, and `Neo4jRestore` res
 | Prometheus metrics | Enterprise, activated by a monitoring destination or `spec.monitoring.sources.metrics.policy: Always` (rejected on Community) |
 | On-demand and scheduled backups | Enterprise, S3-compatible BackupStorage |
 | Restore / initial data-source seed | Yes; point-in-time recovery is not exposed |
+| Backup import | Yes; `BackupImport` finds Neo4j backup artifacts (`<database>-<time>.backup`) in a BackupStorage |
 
 Neo4j Enterprise licensing is opt-in. Set `spec.parameters.edition: enterprise` and
 `spec.parameters.licenseAcceptance: "yes"` for production or `eval` for evaluation. Community
@@ -67,10 +68,18 @@ helm upgrade --install provider-neo4j charts/provider-neo4j \
   --namespace everest-system --create-namespace
 ```
 
-The operator watches `default` by default. Set `operator.watchNamespaces` to the namespaces
-where OpenEverest Instances run, or set `operator.clusterWide: true` together with
-`operator.watchNamespaces: []` to watch every namespace. The operator namespace itself is
-deliberately excluded by the upstream controller.
+The bundled Neo4j operator watches every namespace, which lets it read Secrets and bind RBAC
+cluster-wide. To restrict it, list the namespaces where OpenEverest Instances run:
+
+```yaml
+operator:
+  clusterWide: false
+  watchNamespaces: [team-a, team-b]
+```
+
+An Instance in a namespace the operator does not watch gets no pods and no error. The upstream
+controller never watches its own namespace, so do not create Instances in the release
+namespace.
 
 ## Presets
 
@@ -108,7 +117,7 @@ spec:
     name: neo4j
   topology:
     type: standalone
-  version: "2026.07.1"
+  version: "2026.10.2"
   components:
     engine:
       replicas: 1
@@ -132,7 +141,7 @@ spec:
     name: neo4j
   topology:
     type: cluster
-  version: "2026.07.1"
+  version: "2026.10.2"
   parameters:
     edition: enterprise
     licenseAcceptance: "yes"
@@ -149,9 +158,88 @@ spec:
       replicas: 1
 ```
 
+### High availability
+
+A Cluster gets two defaults:
+
+- a PodDisruptionBudget that lets a node drain take one member at a time, across all pools;
+- a preference to run each member of a pool on its own node (soft pod anti-affinity).
+  `spec.components.engine.schedulingPolicy.affinity` replaces it.
+
+The preference is part of the pod template. A cluster created by provider 0.1.x does not
+get it, because adding it would restart every member.
+
+### External access
+
+`spec.components.engine.service.serviceType` exposes Bolt, HTTP and HTTPS through a
+`ClusterIP` (default), `NodePort` or `LoadBalancer` Service:
+
+```yaml
+components:
+  engine:
+    service:
+      serviceType: LoadBalancer
+      loadBalancerService:
+        sourceRanges: ["203.0.113.0/24"]
+```
+
+A LoadBalancer without `sourceRanges` is open to `0.0.0.0/0`: the Neo4j operator requires
+source ranges, and OpenEverest treats unset ranges as unrestricted. Set them for anything
+reachable from the internet; the UI does not offer the field yet.
+
+### Configuration
+
+`neo4j.conf` settings are a map under the engine's parameters. The UI has no editor for it;
+set it in the Instance:
+
+```yaml
+components:
+  engine:
+    parameters:
+      configuration:
+        db.tx_log.rotation.retention_policy: "2 days"
+```
+
 The UI takes CPU in cores, fractions included (`0.5`), and memory and disk in Gi, and writes
 them as Kubernetes quantity strings; a value it did not change keeps its stored form (for
 example `2048Mi`). Disk size cannot be decreased.
+
+## Backup parameters
+
+`parameters` on a `Backup`, or on a schedule in `spec.backup.storages[].schedules[]`:
+
+| Parameter | Backup | Schedule | Meaning |
+|---|---|---|---|
+| `databases` | yes | yes | Databases to back up. Default `["neo4j"]`. |
+| `type` | yes | no | `Full` (default), `Auto` or `Incremental`. A schedule's cron always takes full backups. |
+| `incrementalSchedule` | no | yes | Cron for incremental backups between the schedule's full backups. |
+| `aggregate` | no | yes | Compact each chain into one full backup once the next full backup closes it. |
+| `scratchSize` | yes | yes | Dedicated staging volume, for example `200Gi`. Set it for large databases. |
+
+```yaml
+schedules:
+  - name: weekly
+    enabled: true
+    cron: "0 2 * * 0"                      # full backup on Sunday
+    retention: {type: count, count: 4}     # keeps four chains
+    parameters:
+      incrementalSchedule: "0 2 * * 1-6"   # incrementals on the other days
+      aggregate: true
+```
+
+Retention counts chains: a full backup together with its incrementals.
+
+## Importing backups
+
+A `BackupImport` lists a BackupStorage and creates a `Backup` for every Neo4j backup artifact
+(`<database>-<time>.backup`) under its prefix, including ones written by another cluster or
+by `neo4j-admin database backup`. Restore one like any other Backup, in place or as a new
+Instance's `spec.dataSource`. The Instance must have the storage in `spec.backup.storages`,
+because its servers read the artifact with that storage's credentials.
+
+An imported Backup holds one database and restores into the database it was taken from; set
+`parameters.databases` on the Restore to restore it under another name. The provider never
+deletes imported artifacts.
 
 ## Status
 
@@ -192,7 +280,7 @@ version pinned in `go.mod`; CI builds the OpenEverest controller from the same v
 make install-crds
 make deploy-provider-ci
 make test-integration            # every suite, or one of:
-make test-integration-core       # standalone, cluster, admission webhook
+make test-integration-core       # standalone, cluster, exposure, admission webhook
 make test-integration-presets    # the chart's ClusterInstancePresets
 make test-integration-monitoring # spec.monitoring.sources.metrics.policy
 ```
@@ -200,8 +288,26 @@ make test-integration-monitoring # spec.monitoring.sources.metrics.policy
 The Neo4j operator is scaled to 0 in these suites: each writes the status the operator would
 report, and asserts what the provider renders and reports.
 
+The e2e-cluster suites run a real Neo4j through the operator and query it over Bolt:
+
+```bash
+make deploy-cert-manager
+make deploy-provider-e2e
+make test-e2e-cluster                 # every suite, or one of:
+make test-e2e-cluster-standalone      # default TLS, version upgrade, LoadBalancer
+make test-e2e-cluster-backup-restore  # backup, in-place restore, seeding a new Instance
+make test-e2e-cluster-cluster         # three primaries, adding a read pool
+```
+
+The backup and cluster suites run Neo4j Enterprise under its evaluation license
+(`licenseAcceptance: eval`).
+
 Run `make verify` before committing generated files. The pinned Neo4j operator is `v1.1.0`;
 CRDs in `charts/provider-neo4j/crds/` are copied from that version by `make generate`.
+
+Dependabot proposes new operator releases by bumping the subchart in `Chart.yaml`. It cannot
+bump the `replace` directive that pins the operator's API module in `go.mod`, so finish its PR
+by hand: set the same version there, run `go mod tidy` and `make generate`, and commit.
 
 ## License
 

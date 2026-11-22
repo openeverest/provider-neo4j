@@ -70,7 +70,8 @@ All settings live in `dev/.env` (see `dev/.env.example`). Common options:
 |----------|---------|-------------|
 | `INSTALL_OPENEVEREST` | `true` | Install the released OpenEverest core. |
 | `OPENEVEREST_VERSION` | `2.0.0-alpha.1` | Core chart version to install. |
-| `PROVIDER_NAMESPACE` | `default` | Namespace for the provider + operator. |
+| `PROVIDER_NAMESPACE` | `provider-system` | Namespace for the provider + operator. The operator ignores Instances created here. |
+| `INSTANCE_NAMESPACE` | `default` | Namespace for test Instances; the `BackupStorage` is created here. |
 | `ENABLE_SEAWEEDFS` | `false` | Deploy SeaweedFS + a `BackupStorage` CR for backups. |
 | `K8S_CONTEXT` | _(unset)_ | Restrict Tilt to a specific Kubernetes context. |
 | `DOCKER_REGISTRY_URL` | _(unset)_ | Push images here instead of the cluster's local registry. |

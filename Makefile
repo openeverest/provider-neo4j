@@ -34,6 +34,9 @@ GOLANGCI_LINT ?= $(LOCALBIN)/golangci-lint-$(GOLANGCI_LINT_VERSION)
 # Helm chart directory
 CHART_DIR ?= charts/provider-neo4j
 
+## cert-manager version installed for the e2e-cluster tests.
+CERT_MANAGER_VERSION ?= v1.21.3
+
 .PHONY: help
 help: ## Display this help.
 	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage:\n  make \033[36m<target>\033[0m\n"} /^[a-zA-Z_0-9-]+:.*?##/ { printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2 } /^##@/ { printf "\n\033[1m%s\033[0m\n", substr($$0, 5) } ' $(MAKEFILE_LIST)
@@ -150,7 +153,7 @@ test-integration: ## Run all integration tests against the current cluster.
 	. ./test/vars.sh && chainsaw test --config ./test/integration/.chainsaw.yaml ./test/integration
 
 .PHONY: test-integration-core
-test-integration-core: ## Run core integration tests (standalone, cluster, admission).
+test-integration-core: ## Run core integration tests (standalone, cluster, exposure, admission).
 	. ./test/vars.sh && chainsaw test --config ./test/integration/.chainsaw.yaml ./test/integration/core
 
 .PHONY: test-integration-presets
@@ -160,6 +163,24 @@ test-integration-presets: ## Run the ClusterInstancePreset integration tests.
 .PHONY: test-integration-monitoring
 test-integration-monitoring: ## Run monitoring integration tests.
 	. ./test/vars.sh && chainsaw test --config ./test/integration/.chainsaw.yaml ./test/integration/monitoring
+
+# The e2e-cluster suites run a real Neo4j through the Neo4j operator (see
+# deploy-provider-e2e); the integration suites above run with it scaled to 0.
+.PHONY: test-e2e-cluster
+test-e2e-cluster: ## Run all e2e-cluster tests (needs a running Neo4j operator and cert-manager).
+	. ./test/vars.sh && chainsaw test --config ./test/e2e-cluster/.chainsaw.yaml ./test/e2e-cluster
+
+.PHONY: test-e2e-cluster-standalone
+test-e2e-cluster-standalone: ## Run the standalone e2e-cluster test (TLS, version upgrade, LoadBalancer).
+	. ./test/vars.sh && chainsaw test --config ./test/e2e-cluster/.chainsaw.yaml ./test/e2e-cluster/standalone
+
+.PHONY: test-e2e-cluster-backup-restore
+test-e2e-cluster-backup-restore: ## Run the backup, restore and data-source e2e-cluster test.
+	. ./test/vars.sh && chainsaw test --config ./test/e2e-cluster/.chainsaw.yaml ./test/e2e-cluster/backup-restore
+
+.PHONY: test-e2e-cluster-cluster
+test-e2e-cluster-cluster: ## Run the Cluster topology e2e-cluster test.
+	. ./test/vars.sh && chainsaw test --config ./test/e2e-cluster/.chainsaw.yaml ./test/e2e-cluster/cluster
 
 .PHONY: load-image
 load-image: ## Import the provider image (IMG) into the k3d cluster.
@@ -188,6 +209,22 @@ deploy-provider-ci: helm-deps ## Deploy the provider via Helm for CI (IMG must a
 		--set operator.watchNamespaces[0]=default \
 		--set operator.replicaCount=0 \
 		--wait --timeout 2m
+
+.PHONY: deploy-cert-manager
+deploy-cert-manager: ## Install cert-manager, which issues the certificates of a real Neo4j.
+	kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/$(CERT_MANAGER_VERSION)/cert-manager.yaml
+	kubectl -n cert-manager wait --for=condition=Available deployment --all --timeout=300s
+
+.PHONY: deploy-provider-e2e
+deploy-provider-e2e: helm-deps ## Deploy the provider with a running Neo4j operator for the e2e-cluster tests.
+	helm upgrade --install provider-neo4j $(CHART_DIR) \
+		--create-namespace \
+		--namespace provider-system \
+		--skip-crds \
+		--set image.repository=$(_IMG_REPO) \
+		--set image.tag=$(_IMG_TAG) \
+		--set image.pullPolicy=Never \
+		--wait --timeout 5m
 
 ##@ Local Development Cluster
 

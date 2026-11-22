@@ -1,0 +1,30 @@
+apiVersion: core.openeverest.io/v1alpha1
+kind: Instance
+metadata:
+  name: source
+spec:
+  providerRef:
+    name: neo4j
+  topology:
+    type: standalone
+  version: "2026.10.2"
+  # Backups need Neo4j Enterprise; "eval" accepts the evaluation license.
+  parameters:
+    edition: enterprise
+    licenseAcceptance: eval
+  backup:
+    enabled: true
+    classRef:
+      name: neo4j-backup
+    storages:
+      - storageRef:
+          name: seaweedfs-s3
+  components:
+    engine:
+      replicas: 1
+      resources:
+        limits:
+          cpu: "1"
+          memory: 2Gi
+      storage:
+        size: 2Gi

@@ -1,0 +1,41 @@
+apiVersion: core.openeverest.io/v1alpha1
+kind: Instance
+metadata:
+  name: graph
+status:
+  phase: Provisioned
+  (conditions[?type == 'Ready'].status | [0]): "True"
+  (conditions[?type == 'Available'].status | [0]): "True"
+  (components[?name == 'engine'].readyReplicas | [0]): 3
+---
+apiVersion: neo4j.com/v1
+kind: Neo4j
+metadata:
+  name: graph
+spec:
+  trust:
+    enabled: true
+status:
+  serverSummary:
+    servers: 3
+    ready: 3
+---
+# A drain may take one member at a time.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: graph-pdb
+spec:
+  minAvailable: 2
+---
+# Members prefer a node each.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: graph-primary-0
+spec:
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - podAffinityTerm:
+            topologyKey: kubernetes.io/hostname

@@ -49,7 +49,10 @@ openeverest_helm_repo = os.getenv(
 
 # Namespaces.
 everest_namespace = os.getenv('EVEREST_NAMESPACE', 'everest-system')
-provider_namespace = os.getenv('PROVIDER_NAMESPACE', 'default')
+provider_namespace = os.getenv('PROVIDER_NAMESPACE', 'provider-system')
+# The Neo4j operator never watches its own namespace, so Instances and their
+# BackupStorage live elsewhere.
+instance_namespace = os.getenv('INSTANCE_NAMESPACE', 'default')
 
 # Whether to deploy SeaweedFS + a BackupStorage CR for testing backups/restores.
 enable_seaweedfs = str2bool(os.getenv('ENABLE_SEAWEEDFS', 'false'))
@@ -206,17 +209,17 @@ if enable_seaweedfs:
         labels=['backup-storage'],
     )
 
-    # Render the BackupStorage CR (+ credentials Secret) into the provider
-    # namespace so the provider can be tested against it.
+    # Render the BackupStorage CR (+ credentials Secret) into the namespace
+    # Instances are created in.
     backupstorage_yaml = read_file('{0}/dev/resources/backupstorage.yaml'.format(
         config.main_dir))
     backupstorage_yaml = backupstorage_yaml.replace(
-        '__NAMESPACE__', provider_namespace)
+        '__NAMESPACE__', instance_namespace)
     k8s_yaml(blob(backupstorage_yaml))
     k8s_resource(
         objects=[
-            'backup-storage-seaweedfs-s3-credentials:secret:{0}'.format(provider_namespace),
-            'seaweedfs-s3:backupstorage:{0}'.format(provider_namespace),
+            'backup-storage-seaweedfs-s3-credentials:secret:{0}'.format(instance_namespace),
+            'seaweedfs-s3:backupstorage:{0}'.format(instance_namespace),
         ],
         new_name='backup-storage',
         resource_deps=['provider-neo4j'],

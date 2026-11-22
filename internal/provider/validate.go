@@ -3,6 +3,7 @@ package provider
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"slices"
 	"strings"
 
@@ -17,6 +18,7 @@ import (
 	"github.com/openeverest/openeverest/v2/provider-runtime/controller"
 
 	"github.com/openeverest/provider-neo4j/definition"
+	neobackup "github.com/openeverest/provider-neo4j/definition/backupclasses/neo4j-backup"
 	"github.com/openeverest/provider-neo4j/definition/components"
 	"github.com/openeverest/provider-neo4j/internal/common"
 )
@@ -35,6 +37,7 @@ func (p *Provider) Validate(in controller.ValidationInput) controller.Validation
 	errs = append(errs, validateTLS(in.Instance, params)...)
 	errs = append(errs, validateComponents(in.Instance, edition)...)
 	errs = append(errs, validateDataSource(in.Instance)...)
+	errs = append(errs, validateBackupSchedules(in.Instance)...)
 	errs = append(errs, validateTransitions(in.Instance, in.Old, params)...)
 	return controller.ValidationResult{Errors: errs}
 }
@@ -114,6 +117,14 @@ func validateComponents(in *corev1alpha1.Instance, edition definition.Edition) f
 			errs = append(errs, field.NotSupported(path.Child("service", "serviceType"), engine.Service.ServiceType,
 				[]corev1.ServiceType{corev1.ServiceTypeClusterIP, corev1.ServiceTypeNodePort, corev1.ServiceTypeLoadBalancer}))
 		}
+		if lb := engine.Service.LoadBalancerService; lb != nil {
+			for i, r := range lb.SourceRanges {
+				if _, _, err := net.ParseCIDR(r); err != nil && net.ParseIP(r) == nil {
+					errs = append(errs, field.Invalid(path.Child("service", "loadBalancerService", "sourceRanges").Index(i), r,
+						"must be an IP address or a CIDR"))
+				}
+			}
+		}
 	}
 	switch in.GetTopologyType() {
 	case common.TopologyStandalone:
@@ -178,6 +189,29 @@ func validateLimits(path *field.Path, limits *corev1.ResourceList) field.ErrorLi
 		errs = append(errs, field.Required(path.Key("memory"), "must be at least "+minMemory.String()))
 	} else if limits.Memory().Cmp(minMemory) < 0 {
 		errs = append(errs, field.Invalid(path.Key("memory"), limits.Memory().String(), "must be at least "+minMemory.String()))
+	}
+	return errs
+}
+
+// validateBackupSchedules checks what the BackupClass schema cannot: the
+// operator's admission webhook is off, so it would accept a cron it can
+// never run.
+func validateBackupSchedules(in *corev1alpha1.Instance) field.ErrorList {
+	if in.Spec.Backup == nil {
+		return nil
+	}
+	var errs field.ErrorList
+	storages := field.NewPath("spec", "backup", "storages")
+	for i, storage := range in.Spec.Backup.Storages {
+		for j, schedule := range storage.Schedules {
+			var params neobackup.Neo4jBackupParameters
+			_ = decodeRaw(schedule.Parameters, &params)
+			if params.IncrementalSchedule != "" && len(strings.Fields(params.IncrementalSchedule)) != 5 {
+				errs = append(errs, field.Invalid(
+					storages.Index(i).Child("schedules").Index(j).Child("parameters", "incrementalSchedule"),
+					params.IncrementalSchedule, "must be a cron expression of five fields"))
+			}
+		}
 	}
 	return errs
 }

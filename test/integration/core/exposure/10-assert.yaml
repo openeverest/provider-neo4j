@@ -1,0 +1,10 @@
+apiVersion: neo4j.com/v1
+kind: Neo4j
+metadata:
+  name: test-exposure
+spec:
+  connectivity:
+    service:
+      type: LoadBalancer
+      loadBalancerSourceRanges:
+        - 0.0.0.0/0

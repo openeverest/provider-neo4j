@@ -1,0 +1,39 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: core-exposure
+spec:
+  description: Expose a Neo4j Instance through a LoadBalancer, with and without source ranges.
+  catch:
+    - script:
+        content: kubectl -n $NAMESPACE get instance,neo4j -o yaml
+    - podLogs:
+        namespace: provider-system
+        selector: app.kubernetes.io/name=provider-neo4j
+        tail: 100
+  steps:
+    - name: provider-deployed
+      try:
+        - assert:
+            file: 00-assert.yaml
+    - name: unrestricted-load-balancer
+      try:
+        - apply:
+            file: 10-create-instance.yaml
+        # The Neo4j CRD refuses a LoadBalancer without source ranges.
+        - assert:
+            file: 10-assert.yaml
+    - name: restricted-load-balancer
+      try:
+        - patch:
+            file: 20-source-ranges.yaml
+        - assert:
+            file: 20-assert.yaml
+    - name: back-to-cluster-ip
+      try:
+        - patch:
+            file: 30-cluster-ip.yaml
+        - assert:
+            file: 30-assert.yaml
+        - error:
+            file: 30-error.yaml
