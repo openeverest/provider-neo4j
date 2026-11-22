@@ -14,6 +14,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/yaml"
 
@@ -46,7 +47,7 @@ func providerSpecFixture(t *testing.T) *corev1alpha1.Provider {
 	}
 }
 
-func testContext(t *testing.T, instance *corev1alpha1.Instance) *controller.Context {
+func testContext(t *testing.T, instance *corev1alpha1.Instance, objects ...client.Object) *controller.Context {
 	t.Helper()
 	scheme := runtime.NewScheme()
 	require.NoError(t, corev1.AddToScheme(scheme))
@@ -56,6 +57,7 @@ func testContext(t *testing.T, instance *corev1alpha1.Instance) *controller.Cont
 	cl := fake.NewClientBuilder().
 		WithScheme(scheme).
 		WithObjects(providerSpecFixture(t), instance).
+		WithObjects(objects...).
 		Build()
 	return controller.NewContext(context.Background(), cl, instance, common.ProviderName)
 }
@@ -221,4 +223,106 @@ func TestValidateRejectsInvalidSourceRange(t *testing.T) {
 	result := (&Provider{}).Validate(controller.ValidationInput{Instance: instance})
 	require.Len(t, result.Errors, 1)
 	assert.Equal(t, "spec.components[engine].service.loadBalancerService.sourceRanges[1]", result.Errors[0].Field)
+}
+
+func clusterInstance(t *testing.T) *corev1alpha1.Instance {
+	t.Helper()
+	return &corev1alpha1.Instance{
+		ObjectMeta: metav1.ObjectMeta{Name: "graph", Namespace: "default", UID: "graph-uid"},
+		Spec: corev1alpha1.InstanceSpec{
+			ProviderRef: commonv1alpha1.ObjectRef{Name: common.ProviderName},
+			Topology:    &corev1alpha1.TopologySpec{Type: common.TopologyCluster},
+			Version:     "2026.07.1",
+			Parameters:  rawExtension(t, map[string]any{"edition": "enterprise", "licenseAcceptance": "yes"}),
+			Components:  map[string]corev1alpha1.ComponentSpec{common.ComponentEngine: validEngine()},
+		},
+	}
+}
+
+func TestClusterPodDisruptionBudgetAllowsOneMemberAtATime(t *testing.T) {
+	t.Parallel()
+	instance := clusterInstance(t)
+	got, err := buildNeo4j(testContext(t, instance))
+	require.NoError(t, err)
+	require.NotNil(t, got.Spec.PodDisruptionBudget)
+	assert.True(t, got.Spec.PodDisruptionBudget.Enabled)
+	assert.Equal(t, int32(2), got.Spec.PodDisruptionBudget.MinAvailable.IntVal)
+
+	// The budget covers every pool: with a lower minimum a drain could take
+	// two of the three primaries.
+	two := int32(2)
+	instance.Spec.Components[common.ComponentRead] = corev1alpha1.ComponentSpec{Replicas: &two}
+	got, err = buildNeo4j(testContext(t, instance))
+	require.NoError(t, err)
+	assert.Equal(t, int32(4), got.Spec.PodDisruptionBudget.MinAvailable.IntVal)
+
+	// A budget for one pod would block every drain.
+	one := int32(1)
+	engine := validEngine()
+	engine.Replicas = &one
+	instance.Spec.Components = map[string]corev1alpha1.ComponentSpec{common.ComponentEngine: engine}
+	got, err = buildNeo4j(testContext(t, instance))
+	require.NoError(t, err)
+	assert.Nil(t, got.Spec.PodDisruptionBudget)
+}
+
+func TestClusterSpreadsMembersByDefault(t *testing.T) {
+	t.Parallel()
+	preset := func(n *neo4jv1.Neo4j) neo4jv1.PodAntiAffinityPreset {
+		if n.Spec.Scheduling == nil || n.Spec.Scheduling.Affinity == nil {
+			return ""
+		}
+		return n.Spec.Scheduling.Affinity.PodAntiAffinity
+	}
+	live := func(scheduling *neo4jv1.SchedulingSpec) *neo4jv1.Neo4j {
+		return &neo4jv1.Neo4j{
+			ObjectMeta: metav1.ObjectMeta{Name: "graph", Namespace: "default"},
+			Spec:       neo4jv1.Neo4jSpec{Scheduling: scheduling},
+		}
+	}
+	soft := &neo4jv1.SchedulingSpec{Affinity: &neo4jv1.SchedulingAffinitySpec{PodAntiAffinity: "soft"}}
+
+	t.Run("a new cluster prefers a node per member", func(t *testing.T) {
+		t.Parallel()
+		got, err := buildNeo4j(testContext(t, clusterInstance(t)))
+		require.NoError(t, err)
+		assert.Equal(t, antiAffinitySoft, preset(got))
+	})
+	t.Run("and keeps the preference", func(t *testing.T) {
+		t.Parallel()
+		got, err := buildNeo4j(testContext(t, clusterInstance(t), live(soft)))
+		require.NoError(t, err)
+		assert.Equal(t, antiAffinitySoft, preset(got))
+	})
+	t.Run("a cluster running without it is not restarted to add it", func(t *testing.T) {
+		t.Parallel()
+		got, err := buildNeo4j(testContext(t, clusterInstance(t), live(nil)))
+		require.NoError(t, err)
+		assert.Nil(t, got.Spec.Scheduling)
+	})
+	t.Run("the Instance's own affinity replaces it", func(t *testing.T) {
+		t.Parallel()
+		instance := clusterInstance(t)
+		engine := validEngine()
+		own := &corev1.Affinity{NodeAffinity: &corev1.NodeAffinity{}}
+		engine.SchedulingPolicy = &commonv1alpha1.SchedulingPolicy{Affinity: own}
+		instance.Spec.Components[common.ComponentEngine] = engine
+		got, err := buildNeo4j(testContext(t, instance, live(soft)))
+		require.NoError(t, err)
+		assert.Empty(t, preset(got))
+		assert.Equal(t, own, got.Spec.Scheduling.Affinity.Custom)
+	})
+	t.Run("a standalone has nothing to spread", func(t *testing.T) {
+		t.Parallel()
+		one := int32(1)
+		engine := validEngine()
+		engine.Replicas = &one
+		instance := clusterInstance(t)
+		instance.Spec.Topology.Type = common.TopologyStandalone
+		instance.Spec.Components[common.ComponentEngine] = engine
+		got, err := buildNeo4j(testContext(t, instance))
+		require.NoError(t, err)
+		assert.Nil(t, got.Spec.Scheduling)
+		assert.Nil(t, got.Spec.PodDisruptionBudget)
+	})
 }

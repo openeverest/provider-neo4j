@@ -133,7 +133,7 @@ presets:
   - name: standalone
     enabled: true
     spec:
-      version: "2026.07.1"
+      version: "2026.10.2"
       topology:
         type: standalone
       components:
@@ -151,7 +151,7 @@ presets:
   - name: cluster
     enabled: false
     spec:
-      version: "2026.07.1"
+      version: "2026.10.2"
       topology:
         type: cluster
       parameters:
@@ -194,8 +194,12 @@ leaderElection:
   enabled: true
 
 operator:
-  clusterWide: false
-  watchNamespaces:
-    - default
+  # -- Watch every namespace, so Instances work wherever they are created. The
+  # operator can then read Secrets and bind RBAC in all namespaces. Its own
+  # namespace is never watched.
+  clusterWide: true
+  # -- Namespaces to watch instead. Needs clusterWide: false, and must not
+  # include the release namespace.
+  watchNamespaces: []
   webhook:
     enabled: false

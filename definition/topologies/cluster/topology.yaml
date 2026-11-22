@@ -141,9 +141,5 @@ ui:
               - {label: ClusterIP, value: ClusterIP}
               - {label: LoadBalancer, value: LoadBalancer}
               - {label: NodePort, value: NodePort}
-        configuration:
-          uiType: text
-          path: spec.components.engine.parameters.configuration
-          fieldParams: {label: neo4j.conf, multiline: true}
-      componentsOrder: [externalAccess, configuration]
+      componentsOrder: [externalAccess]
   sectionsOrder: [databaseVersion, resources, secondaryPools, advanced]

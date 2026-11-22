@@ -62,6 +62,26 @@
 - apiGroups:
     - backup.openeverest.io
   resources:
+    - backupimports
+  verbs:
+    - get
+    - list
+    - patch
+    - update
+    - watch
+- apiGroups:
+    - backup.openeverest.io
+  resources:
+    - backupimports/status
+    - backups/status
+    - restores/status
+  verbs:
+    - get
+    - patch
+    - update
+- apiGroups:
+    - backup.openeverest.io
+  resources:
     - backups
     - restores
   verbs:
@@ -72,15 +92,6 @@
     - patch
     - update
     - watch
-- apiGroups:
-    - backup.openeverest.io
-  resources:
-    - backups/status
-    - restores/status
-  verbs:
-    - get
-    - patch
-    - update
 - apiGroups:
     - cert-manager.io
   resources:

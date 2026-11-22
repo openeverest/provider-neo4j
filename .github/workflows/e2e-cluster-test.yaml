@@ -1,0 +1,111 @@
+---
+# Reusable workflow — run one chainsaw e2e-cluster test suite inside a k3d
+# cluster. Unlike the integration tests, these run a real Neo4j: the Neo4j
+# operator is deployed and cert-manager issues the certificates. Called by
+# ci.yaml; not triggered directly.
+name: E2E Cluster test
+
+on:
+  workflow_call:
+    inputs:
+      make_target:
+        description: 'Make target for the chainsaw suite (e.g. test-e2e-cluster-standalone)'
+        type: string
+        required: true
+      suite:
+        description: 'Human-readable suite name used for artifact naming'
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+env:
+  IMG: provider-neo4j:ci
+
+jobs:
+  run:
+    name: ${{ inputs.suite }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      # The controller and the CRDs it applies must match the core go.mod pins.
+      - name: Resolve the pinned OpenEverest commit
+        id: openeverest
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(awk '{for (i = 1; i < NF; i++) if ($i == "github.com/openeverest/openeverest/v2") {print $(i+1); exit}}' go.mod)
+          revision=$version
+          if [[ $version =~ [-.][0-9]{14}-([0-9a-f]{12})$ ]]; then
+            revision=$(gh api "repos/openeverest/openeverest/commits/${BASH_REMATCH[1]}" --jq .sha)
+          fi
+          echo "revision=$revision" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout OpenEverest
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          repository: openeverest/openeverest
+          ref: ${{ steps.openeverest.outputs.revision }}
+          path: _openeverest
+
+      - name: Install Kubernetes tooling
+        uses: ./.github/actions/setup-k8s-tools
+        with:
+          install-k3d: 'true'
+          install-chainsaw: 'true'
+
+      - name: Create k3d cluster
+        run: |
+          sudo modprobe br_netfilter
+          make k3d-cluster-up
+
+      - name: Build provider image
+        run: make docker-build
+
+      - name: Import image into k3d
+        run: make load-image
+
+      - name: Build OpenEverest controller
+        working-directory: _openeverest
+        run: make build-controller
+
+      - name: Build OpenEverest controller Docker image
+        working-directory: _openeverest
+        run: make docker-build-controller
+
+      - name: Import OpenEverest controller image into k3d
+        run: make load-openeverest-controller-image
+
+      - name: Install CRDs
+        run: make install-crds
+
+      - name: Install cert-manager
+        run: make deploy-cert-manager
+
+      - name: Deploy provider with the Neo4j operator
+        run: make deploy-provider-e2e
+
+      - name: Deploy OpenEverest controller
+        working-directory: _openeverest
+        run: make deploy-test-controller
+
+      - name: Wait for OpenEverest deployment to be ready
+        working-directory: _openeverest
+        run: make wait-test-controller
+
+      - name: Run ${{ inputs.make_target }}
+        run: make ${{ inputs.make_target }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload chainsaw report on failure
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: chainsaw-${{ inputs.suite }}-${{ github.run_id }}
+          path: /tmp/chainsaw-report*.xml
+          retention-days: 7

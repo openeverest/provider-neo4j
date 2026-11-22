@@ -1,7 +1,7 @@
 # BackupStorage CR (+ credentials Secret) pointing at the in-cluster SeaweedFS.
 #
 # Rendered by dev/Tiltfile when ENABLE_SEAWEEDFS=true. The __NAMESPACE__ token is
-# replaced with the provider namespace at apply time.
+# replaced with the Instance namespace at apply time.
 apiVersion: v1
 kind: Secret
 metadata:

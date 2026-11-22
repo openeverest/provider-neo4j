@@ -43,6 +43,9 @@ const (
 	neo4jScheduleCredentialPrefix = "everest-neo4j-"
 )
 
+const restoreMetadataIgnored = "restoreMetadata is deprecated and was ignored: " +
+	"users, roles and privileges cannot be restored from an object-storage backup"
+
 func defaultBackupDatabases(databases []string) []string {
 	if len(databases) == 0 {
 		return []string{"neo4j"}
@@ -161,25 +164,11 @@ func reconcileBackupSchedules(c *controller.Context, neo4j *neo4jv1.Neo4j) error
 				schedule := storage.Schedules[i]
 				name := c.Name() + "-" + schedule.Name
 				desired[name] = struct{}{}
-				retention, err := backupRetention(schedule.Retention)
+				spec, err := backupScheduleSpec(neo4j.Name, schedule, destination)
 				if err != nil {
 					return err
 				}
-				obj := &neo4jv1.Neo4jBackupSchedule{
-					ObjectMeta: c.ObjectMeta(name),
-					Spec: neo4jv1.Neo4jBackupScheduleSpec{
-						Neo4jRef: neo4jv1.Neo4jRef{Name: neo4j.Name},
-						Suspend:  !schedule.Enabled,
-						Full: neo4jv1.FullCadence{
-							Schedule:  schedule.Cron,
-							Retention: retention,
-						},
-						BackupTemplate: neo4jv1.BackupTemplate{
-							Databases:   []string{"neo4j"},
-							Destination: destination,
-						},
-					},
-				}
+				obj := &neo4jv1.Neo4jBackupSchedule{ObjectMeta: c.ObjectMeta(name), Spec: spec}
 				obj.Labels[managedScheduleLabel] = c.Name()
 				if err := c.Apply(obj); err != nil {
 					return fmt.Errorf("apply Neo4jBackupSchedule %q: %w", name, err)
@@ -205,6 +194,47 @@ func reconcileBackupSchedules(c *controller.Context, neo4j *neo4jv1.Neo4j) error
 		}
 	}
 	return nil
+}
+
+// backupScheduleSpec translates one schedule of the Instance. Its cron takes
+// full backups, each starting a chain; the schedule's parameters add
+// incremental backups to the chain and compact it once it is closed.
+func backupScheduleSpec(
+	neo4jName string, schedule corev1alpha1.InstanceBackupSchedule, destination neo4jv1.BackupDestination,
+) (neo4jv1.Neo4jBackupScheduleSpec, error) {
+	retention, err := backupRetention(schedule.Retention)
+	if err != nil {
+		return neo4jv1.Neo4jBackupScheduleSpec{}, err
+	}
+	params := neobackup.Neo4jBackupParameters{}
+	_ = decodeRaw(schedule.Parameters, &params)
+	spec := neo4jv1.Neo4jBackupScheduleSpec{
+		Neo4jRef: neo4jv1.Neo4jRef{Name: neo4jName},
+		Suspend:  !schedule.Enabled,
+		Full: neo4jv1.FullCadence{
+			Schedule:  schedule.Cron,
+			Retention: retention,
+		},
+		BackupTemplate: neo4jv1.BackupTemplate{
+			Databases:   defaultBackupDatabases(params.Databases),
+			Destination: destination,
+			Scratch:     backupScratch(params),
+		},
+	}
+	if params.IncrementalSchedule != "" {
+		spec.Incremental = &neo4jv1.IncrementalCadence{Schedule: params.IncrementalSchedule}
+	}
+	if params.Aggregate {
+		spec.Aggregate = &neo4jv1.AggregateCadence{Enabled: true}
+	}
+	return spec, nil
+}
+
+func backupScratch(params neobackup.Neo4jBackupParameters) *neo4jv1.BackupScratch {
+	if params.ScratchSize == "" {
+		return nil
+	}
+	return &neo4jv1.BackupScratch{Size: params.ScratchSize}
 }
 
 func backupRetention(in *corev1alpha1.BackupScheduleRetention) (*neo4jv1.BackupRetention, error) {
@@ -246,6 +276,23 @@ func (p *Provider) SyncBackup(c *controller.Context, backup *backupv1alpha1.Back
 		return controller.BackupExecutionStatus{}, fmt.Errorf("get Neo4jBackup: %w", err)
 	}
 	created := apierrors.IsNotFound(err)
+	if created && backup.Spec.ScheduleName != "" {
+		// The Backup mirrors a Neo4jBackup its schedule emitted, and the
+		// schedule has pruned it. Creating it again would take a new backup
+		// under the name of an old one.
+		if err := c.Client().Delete(c.Context(), backup); err != nil && !apierrors.IsNotFound(err) {
+			return controller.BackupExecutionStatus{}, fmt.Errorf("delete pruned scheduled Backup: %w", err)
+		}
+		state := backup.Status.State
+		if state == "" {
+			state = backupv1alpha1.BackupStateFailed
+		}
+		return controller.BackupExecutionStatus{
+			State:             state,
+			OperatorBackupRef: backup.Status.OperatorBackupRef,
+			Message:           "the schedule's retention removed this backup",
+		}, nil
+	}
 	params := neobackup.Neo4jBackupParameters{Type: "Full", Databases: []string{"neo4j"}}
 	_ = decodeRaw(backup.Spec.Parameters, &params)
 	if params.Type == "" {
@@ -266,6 +313,7 @@ func (p *Provider) SyncBackup(c *controller.Context, backup *backupv1alpha1.Back
 				Databases:   params.Databases,
 				Destination: destination,
 				Type:        neo4jv1.BackupType(params.Type),
+				Scratch:     backupScratch(params),
 			},
 		}
 		if _, err := controllerutil.CreateOrUpdate(c.Context(), c.Client(), desired, func() error {
@@ -326,24 +374,52 @@ func (p *Provider) SyncRestore(c *controller.Context, restore *backupv1alpha1.Re
 		}
 		return controller.RestoreExecutionStatus{}, err
 	}
-	name := source.Name
-	if source.Status.OperatorBackupRef != nil && source.Status.OperatorBackupRef.Name != "" {
-		name = source.Status.OperatorBackupRef.Name
-	}
-	params := neobackup.Neo4jRestoreParameters{Databases: []string{"neo4j"}}
+	params := neobackup.Neo4jRestoreParameters{}
 	_ = decodeRaw(restore.Spec.Parameters, &params)
+	restoreSource := neo4jv1.RestoreSource{BackupRef: source.Name}
+	if source.Status.OperatorBackupRef != nil && source.Status.OperatorBackupRef.Name != "" {
+		restoreSource.BackupRef = source.Status.OperatorBackupRef.Name
+	}
+	if source.Spec.Origin.Type == backupv1alpha1.BackupOriginTypeExternal {
+		// An imported Backup has no Neo4jBackup: restore its artifact by URL.
+		var database string
+		restoreSource, database, err = externalRestoreSource(c, source)
+		if err != nil {
+			return controller.RestoreExecutionStatus{
+				State: backupv1alpha1.RestoreStateFailed, Message: err.Error(),
+			}, nil
+		}
+		if len(params.Databases) == 0 {
+			params.Databases = []string{database}
+		}
+		if len(params.Databases) != 1 {
+			return controller.RestoreExecutionStatus{
+				State:   backupv1alpha1.RestoreStateFailed,
+				Message: "an imported Backup holds one database: set at most one in parameters.databases",
+			}, nil
+		}
+	}
 	params.Databases = defaultBackupDatabases(params.Databases)
+	if isDataSourceRestore(c, restore) {
+		// A new Neo4j always has an empty default database, which the seed
+		// has to replace.
+		params.Overwrite = true
+		params.ForceOffline = true
+	}
 	desired := &neo4jv1.Neo4jRestore{
 		ObjectMeta: metav1.ObjectMeta{Name: restore.Name, Namespace: restore.Namespace},
 	}
 	if _, err := controllerutil.CreateOrUpdate(c.Context(), c.Client(), desired, func() error {
-		desired.Spec = neo4jv1.Neo4jRestoreSpec{
-			Neo4jRef:        neo4jv1.Neo4jRef{Name: c.Name()},
-			Databases:       params.Databases,
-			Overwrite:       params.Overwrite,
-			ForceOffline:    params.ForceOffline,
-			RestoreMetadata: params.RestoreMetadata,
-			Source:          neo4jv1.RestoreSource{BackupRef: name},
+		// The spec is immutable: leave a Neo4jRestore an older provider
+		// created as it is.
+		if desired.CreationTimestamp.IsZero() {
+			desired.Spec = neo4jv1.Neo4jRestoreSpec{
+				Neo4jRef:     neo4jv1.Neo4jRef{Name: c.Name()},
+				Databases:    params.Databases,
+				Overwrite:    params.Overwrite,
+				ForceOffline: params.ForceOffline,
+				Source:       restoreSource,
+			}
 		}
 		return controllerutil.SetControllerReference(restore, desired, c.Client().Scheme())
 	}); err != nil {
@@ -353,6 +429,9 @@ func (p *Provider) SyncRestore(c *controller.Context, restore *backupv1alpha1.Re
 		OperatorRestoreRef: &commonv1alpha1.TypedObjectRef{
 			Group: neo4jv1.GroupVersion.Group, Kind: "Neo4jRestore", Name: desired.Name,
 		},
+	}
+	if params.RestoreMetadata {
+		out.Message = restoreMetadataIgnored
 	}
 	switch desired.Status.Phase {
 	case neo4jv1.RunPhaseSucceeded:
@@ -368,6 +447,13 @@ func (p *Provider) SyncRestore(c *controller.Context, restore *backupv1alpha1.Re
 		out.State = backupv1alpha1.RestoreStatePending
 	}
 	return out, nil
+}
+
+// isDataSourceRestore tells whether the runtime created the Restore to seed the
+// Instance from spec.dataSource.
+func isDataSourceRestore(c *controller.Context, restore *backupv1alpha1.Restore) bool {
+	return restore.Name == c.Name()+controller.DataSourceRestoreNameSuffix &&
+		metav1.IsControlledBy(restore, c.Instance())
 }
 
 func sourceBackup(c *controller.Context, restore *backupv1alpha1.Restore) (*backupv1alpha1.Backup, *controller.RestoreExecutionStatus, error) {

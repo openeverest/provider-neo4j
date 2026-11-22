@@ -3,7 +3,7 @@ description: |
   Online backups and restores managed by the Neo4j Kubernetes Operator.
   Neo4j backup and Prometheus metrics require Enterprise edition and explicit
   license acceptance.
-supportsImport: false
+supportsImport: true
 backupStorageClasses:
   - name: s3
     authModes: [AccessKey]

@@ -123,3 +123,30 @@ jobs:
       make_target: test-integration-monitoring
       suite: monitoring
     secrets: inherit
+
+  test-e2e-cluster-standalone:
+    name: E2E Cluster / standalone
+    needs: [lint, build, verify]
+    uses: ./.github/workflows/e2e-cluster-test.yaml
+    with:
+      make_target: test-e2e-cluster-standalone
+      suite: e2e-standalone
+    secrets: inherit
+
+  test-e2e-cluster-backup-restore:
+    name: E2E Cluster / backup and restore
+    needs: [lint, build, verify]
+    uses: ./.github/workflows/e2e-cluster-test.yaml
+    with:
+      make_target: test-e2e-cluster-backup-restore
+      suite: e2e-backup-restore
+    secrets: inherit
+
+  test-e2e-cluster-cluster:
+    name: E2E Cluster / cluster
+    needs: [lint, build, verify]
+    uses: ./.github/workflows/e2e-cluster-test.yaml
+    with:
+      make_target: test-e2e-cluster-cluster
+      suite: e2e-cluster
+    secrets: inherit

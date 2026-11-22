@@ -1,0 +1,15 @@
+apiVersion: backup.openeverest.io/v1alpha1
+kind: Restore
+metadata:
+  name: rollback
+spec:
+  instanceRef:
+    name: source
+  dataSource:
+    type: Backup
+    backup:
+      backupRef:
+        name: first
+  parameters:
+    overwrite: true
+    forceOffline: true

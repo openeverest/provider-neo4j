@@ -1,0 +1,9 @@
+apiVersion: core.openeverest.io/v1alpha1
+kind: Instance
+metadata:
+  name: graph
+spec:
+  components:
+    engine:
+      service:
+        serviceType: LoadBalancer

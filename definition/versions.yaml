@@ -1,18 +1,27 @@
 componentTypes:
   neo4j:
-    defaultVersion: "2026.07.1"
+    defaultVersion: "2026.10.2"
     versions:
+      - version: "2026.10.2"
+        image: neo4j:2026.10.2
       - version: "2026.07.1"
         image: neo4j:2026.07.1
       - version: "2026.06.0"
         image: neo4j:2026.06.0
       - version: "2026.05.0"
         image: neo4j:2026.05.0
+      - version: "5.26.33"
+        image: neo4j:5.26.33
       - version: "5.26.29"
         image: neo4j:5.26.29
 
-defaultVersion: "2026.07.1"
+defaultVersion: "2026.10.2"
 versions:
+  - name: "2026.10.2"
+    components:
+      engine: "2026.10.2"
+      analytics: "2026.10.2"
+      read: "2026.10.2"
   - name: "2026.07.1"
     components:
       engine: "2026.07.1"
@@ -28,6 +37,11 @@ versions:
       engine: "2026.05.0"
       analytics: "2026.05.0"
       read: "2026.05.0"
+  - name: "5.26.33"
+    components:
+      engine: "5.26.33"
+      analytics: "5.26.33"
+      read: "5.26.33"
   - name: "5.26.29"
     components:
       engine: "5.26.29"
