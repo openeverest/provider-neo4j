@@ -61,9 +61,10 @@ func TestSyncRestoreIgnoresRestoreMetadata(t *testing.T) {
 	assert.Equal(t, "nightly", got.Spec.Source.BackupRef)
 }
 
-// A new Neo4j has an empty "neo4j" database, so a seed that does not
-// overwrite it fails with DatabaseExists.
-func TestSyncRestoreSeedOverwritesTheEmptyDatabase(t *testing.T) {
+// Every Neo4j has a "neo4j" database, so a restore that does not overwrite it
+// fails with DatabaseExists: a seed always overwrites, an in-place restore
+// does unless it sets overwrite: false.
+func TestSyncRestoreOverwritesByDefault(t *testing.T) {
 	t.Parallel()
 	scheme := runtime.NewScheme()
 	require.NoError(t, corev1alpha1.AddToScheme(scheme))
@@ -90,22 +91,27 @@ func TestSyncRestoreSeedOverwritesTheEmptyDatabase(t *testing.T) {
 		return restore
 	}
 	seed := newRestore("graph-datasource", true)
-	// A user's Restore with the seed's name is not the seed.
+	seed.Spec.Parameters = rawExtension(t, map[string]any{"overwrite": false})
+	// A user's Restore with the seed's name is not the seed: it replaces the
+	// data in place, which overwrites by default but stays online.
 	manual := newRestore("other-datasource", false)
+	keep := newRestore("keep-existing", false)
+	keep.Spec.Parameters = rawExtension(t, map[string]any{"overwrite": false})
 	cl := fake.NewClientBuilder().WithScheme(scheme).
-		WithObjects(instance, backup, seed, manual).WithStatusSubresource(backup).Build()
+		WithObjects(instance, backup, seed, manual, keep).WithStatusSubresource(backup).Build()
 	c := controller.NewContext(context.Background(), cl, instance, common.ProviderName)
 
 	for _, tc := range []struct {
-		restore   *backupv1alpha1.Restore
-		overwrite bool
-	}{{seed, true}, {manual, false}} {
+		restore      *backupv1alpha1.Restore
+		overwrite    bool
+		forceOffline bool
+	}{{seed, true, true}, {manual, true, false}, {keep, false, false}} {
 		_, err := (&Provider{}).SyncRestore(c, tc.restore)
 		require.NoError(t, err)
 		got := &neo4jv1.Neo4jRestore{}
 		require.NoError(t, cl.Get(context.Background(), types.NamespacedName{Namespace: "default", Name: tc.restore.Name}, got))
 		assert.Equal(t, tc.overwrite, got.Spec.Overwrite, tc.restore.Name)
-		assert.Equal(t, tc.overwrite, got.Spec.ForceOffline, tc.restore.Name)
+		assert.Equal(t, tc.forceOffline, got.Spec.ForceOffline, tc.restore.Name)
 	}
 }
 

@@ -244,6 +244,19 @@ schedules:
 
 Retention counts chains: a full backup together with its incrementals.
 
+## Restore parameters
+
+`parameters` on a `Restore`:
+
+| Parameter | Default | Meaning |
+|---|---|---|
+| `databases` | `["neo4j"]` | Databases to restore. |
+| `overwrite` | `true` | Replace databases that already exist. Every Neo4j has `neo4j`, so `false` restores only databases the Instance does not have yet. |
+| `forceOffline` | `false` | Stop a database before replacing it. Requires `overwrite`. |
+
+A restore into a new Instance (`spec.dataSource`) always overwrites and forces offline: it
+replaces the empty default database the new Instance starts with.
+
 ## Importing backups
 
 A `BackupImport` lists a BackupStorage and creates a `Backup` for every Neo4j backup artifact

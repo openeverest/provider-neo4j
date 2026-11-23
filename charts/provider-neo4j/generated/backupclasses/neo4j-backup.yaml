@@ -120,7 +120,11 @@ spec:
           description: ForceOffline stops a database before replacing it. Requires Overwrite.
           type: boolean
         overwrite:
-          description: Overwrite replaces databases that already exist.
+          description: |-
+            Overwrite replaces databases that already exist. Defaults to true: a
+            restore replaces the data of the Instance it targets, and every Neo4j
+            has the "neo4j" database. Set false to restore only databases the
+            Instance does not have yet.
           type: boolean
         restoreMetadata:
           description: |-
@@ -131,5 +135,5 @@ spec:
       type: object
       x-kubernetes-validations:
         - message: forceOffline requires overwrite
-          rule: '!has(self.forceOffline) || !self.forceOffline || self.overwrite'
+          rule: '!has(self.forceOffline) || !self.forceOffline || !has(self.overwrite) || self.overwrite'
   supportsImport: true
