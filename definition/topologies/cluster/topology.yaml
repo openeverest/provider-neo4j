@@ -104,6 +104,10 @@ ui:
       componentsOrder: [primaries, cpu, memory, disk, storageClass]
     secondaryPools:
       label: Secondary pools
+      description: >-
+        Analytics and read servers hold copies of the databases you place on them. The default
+        neo4j database stays on the primaries until you run
+        ALTER DATABASE neo4j SET TOPOLOGY <primaries> PRIMARIES <secondaries> SECONDARIES.
       components:
         analytics:
           uiType: group
