@@ -18,6 +18,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/yaml"
 
+	backupv1alpha1 "github.com/openeverest/openeverest/v2/api/backup/v1alpha1"
 	commonv1alpha1 "github.com/openeverest/openeverest/v2/api/common/v1alpha1"
 	corev1alpha1 "github.com/openeverest/openeverest/v2/api/core/v1alpha1"
 	monitoringv1alpha1 "github.com/openeverest/openeverest/v2/api/monitoring/v1alpha1"
@@ -52,6 +53,7 @@ func testContext(t *testing.T, instance *corev1alpha1.Instance, objects ...clien
 	scheme := runtime.NewScheme()
 	require.NoError(t, corev1.AddToScheme(scheme))
 	require.NoError(t, corev1alpha1.AddToScheme(scheme))
+	require.NoError(t, backupv1alpha1.AddToScheme(scheme))
 	require.NoError(t, monitoringv1alpha1.AddToScheme(scheme))
 	require.NoError(t, neo4jv1.AddToScheme(scheme))
 	cl := fake.NewClientBuilder().
@@ -325,4 +327,44 @@ func TestClusterSpreadsMembersByDefault(t *testing.T) {
 		assert.Nil(t, got.Spec.Scheduling)
 		assert.Nil(t, got.Spec.PodDisruptionBudget)
 	})
+}
+
+// A storage entry the runtime holds must not be rendered: the Neo4j keeps the
+// credentials it has, and never gets the empty security the CRD rejects.
+func TestBuildNeo4jHoldsTheBackupCredentialsOfAHeldStorage(t *testing.T) {
+	t.Parallel()
+	instance := &corev1alpha1.Instance{
+		ObjectMeta: metav1.ObjectMeta{Name: "graph", Namespace: "default", UID: "graph-uid"},
+		Spec: corev1alpha1.InstanceSpec{
+			ProviderRef: commonv1alpha1.ObjectRef{Name: common.ProviderName},
+			Topology:    &corev1alpha1.TopologySpec{Type: common.TopologyCluster},
+			Version:     "2026.07.1",
+			Parameters: rawExtension(t, map[string]any{
+				"edition":           "enterprise",
+				"licenseAcceptance": "yes",
+			}),
+			Components: map[string]corev1alpha1.ComponentSpec{common.ComponentEngine: validEngine()},
+			Backup: &corev1alpha1.InstanceBackupSpec{
+				Enabled:  true,
+				ClassRef: commonv1alpha1.ObjectRef{Name: "neo4j-backup"},
+				// The BackupStorage does not exist, so the runtime holds the entry.
+				Storages: []corev1alpha1.InstanceBackupStorage{{StorageRef: commonv1alpha1.ObjectRef{Name: "s3"}}},
+			},
+		},
+	}
+
+	got, err := buildNeo4j(testContext(t, instance))
+	require.NoError(t, err)
+	assert.Nil(t, got.Spec.Security, "nothing to hold yet")
+
+	live := &neo4jv1.Neo4j{
+		ObjectMeta: metav1.ObjectMeta{Name: "graph", Namespace: "default"},
+		Spec: neo4jv1.Neo4jSpec{Security: &neo4jv1.SecuritySpec{
+			CloudIdentity: &neo4jv1.CloudIdentity{StaticKeySecret: "everest-neo4j-graph-s3"},
+		}},
+	}
+	got, err = buildNeo4j(testContext(t, instance, live))
+	require.NoError(t, err)
+	require.NotNil(t, got.Spec.Security)
+	assert.Equal(t, live.Spec.Security.CloudIdentity, got.Spec.Security.CloudIdentity)
 }

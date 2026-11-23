@@ -143,6 +143,11 @@ func buildNeo4j(c *controller.Context) (*neo4jv1.Neo4j, error) {
 	if err := configureBackupStorage(c, &spec); err != nil {
 		return nil, err
 	}
+	if *spec.Security == (neo4jv1.SecuritySpec{}) {
+		// Applied as {}, it drops the cloudIdentity this provider set before,
+		// and the API server stores the null the CRD rejects.
+		spec.Security = nil
+	}
 
 	return &neo4jv1.Neo4j{
 		ObjectMeta: c.ObjectMeta(c.Name()),
