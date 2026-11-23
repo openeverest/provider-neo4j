@@ -64,6 +64,16 @@ func configureBackupStorage(c *controller.Context, spec *neo4jv1.Neo4jSpec) erro
 	}
 	for _, storage := range storages {
 		if !storage.Apply() {
+			// Hold rule: keep the credentials the live Neo4j has, so its
+			// backups and restores go on against the last storage that worked.
+			held, err := liveCloudIdentity(c)
+			if err != nil {
+				return err
+			}
+			if held != nil {
+				spec.Security.CloudIdentity = held
+				return nil
+			}
 			continue
 		}
 		credentials, err := ensureStorageCredentials(c, storage)
@@ -75,6 +85,20 @@ func configureBackupStorage(c *controller.Context, spec *neo4jv1.Neo4jSpec) erro
 		return nil
 	}
 	return nil
+}
+
+func liveCloudIdentity(c *controller.Context) (*neo4jv1.CloudIdentity, error) {
+	live := &neo4jv1.Neo4j{}
+	if err := c.Get(live, c.Name()); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("get live Neo4j: %w", err)
+	}
+	if live.Spec.Security == nil {
+		return nil, nil
+	}
+	return live.Spec.Security.CloudIdentity, nil
 }
 
 func resolveStorage(c *controller.Context, name string) (controller.ResolvedBackupStorage, error) {
