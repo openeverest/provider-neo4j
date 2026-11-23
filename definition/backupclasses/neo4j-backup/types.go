@@ -43,11 +43,14 @@ type Neo4jBackupParameters struct {
 }
 
 // Neo4jRestoreParameters configures a restore.
-// +kubebuilder:validation:XValidation:rule="!has(self.forceOffline) || !self.forceOffline || self.overwrite",message="forceOffline requires overwrite"
+// +kubebuilder:validation:XValidation:rule="!has(self.forceOffline) || !self.forceOffline || !has(self.overwrite) || self.overwrite",message="forceOffline requires overwrite"
 type Neo4jRestoreParameters struct {
-	// Overwrite replaces databases that already exist.
+	// Overwrite replaces databases that already exist. Defaults to true: a
+	// restore replaces the data of the Instance it targets, and every Neo4j
+	// has the "neo4j" database. Set false to restore only databases the
+	// Instance does not have yet.
 	// +optional
-	Overwrite bool `json:"overwrite,omitempty"`
+	Overwrite *bool `json:"overwrite,omitempty"`
 
 	// ForceOffline stops a database before replacing it. Requires Overwrite.
 	// +optional

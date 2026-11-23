@@ -400,10 +400,11 @@ func (p *Provider) SyncRestore(c *controller.Context, restore *backupv1alpha1.Re
 		}
 	}
 	params.Databases = defaultBackupDatabases(params.Databases)
+	overwrite := params.Overwrite == nil || *params.Overwrite
 	if isDataSourceRestore(c, restore) {
 		// A new Neo4j always has an empty default database, which the seed
 		// has to replace.
-		params.Overwrite = true
+		overwrite = true
 		params.ForceOffline = true
 	}
 	desired := &neo4jv1.Neo4jRestore{
@@ -416,7 +417,7 @@ func (p *Provider) SyncRestore(c *controller.Context, restore *backupv1alpha1.Re
 			desired.Spec = neo4jv1.Neo4jRestoreSpec{
 				Neo4jRef:     neo4jv1.Neo4jRef{Name: c.Name()},
 				Databases:    params.Databases,
-				Overwrite:    params.Overwrite,
+				Overwrite:    overwrite,
 				ForceOffline: params.ForceOffline,
 				Source:       restoreSource,
 			}
