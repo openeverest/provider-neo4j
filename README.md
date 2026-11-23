@@ -158,6 +158,21 @@ spec:
       replicas: 1
 ```
 
+### Secondary pools
+
+Analytics and read servers host only the databases whose topology asks for secondaries. The
+Neo4j operator does not widen the topology of an existing database, so the default `neo4j`
+database stays on the primaries. Place it on the pools yourself, with the total of analytics
+and read members as the secondaries:
+
+```cypher
+// on the system database, for 3 primaries, 1 analytics and 1 read server
+ALTER DATABASE neo4j SET TOPOLOGY 3 PRIMARIES 2 SECONDARIES
+```
+
+Run it again after adding members to a pool; on a scale-in, the operator narrows the topology
+itself. Databases you create later get the pools by default.
+
 ### High availability
 
 A Cluster gets two defaults:
