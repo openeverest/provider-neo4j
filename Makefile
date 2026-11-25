@@ -186,6 +186,10 @@ test-e2e-cluster-backup-restore: ## Run the backup, restore and data-source e2e-
 test-e2e-cluster-cluster: ## Run the Cluster topology e2e-cluster test.
 	. ./test/vars.sh && chainsaw test --config ./test/e2e-cluster/.chainsaw.yaml ./test/e2e-cluster/cluster
 
+.PHONY: test-e2e-cluster-credentials
+test-e2e-cluster-credentials: ## Run the credentials e2e-cluster test (changing the password in the user Secret).
+	. ./test/vars.sh && chainsaw test --config ./test/e2e-cluster/.chainsaw.yaml ./test/e2e-cluster/credentials
+
 .PHONY: load-image
 load-image: ## Import the provider image (IMG) into the k3d cluster.
 	k3d image import ${IMG} -c ${K3D_CLUSTER_NAME}
