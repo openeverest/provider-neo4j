@@ -95,16 +95,22 @@ operator-crds: ## Copy the pinned Neo4j operator CRDs into the provider chart.
 		install -m 0644 "$${OPERATOR_DIR}/config/crd/bases/neo4j.com_neo4jrestores.yaml" $(CHART_DIR)/crds/neo4j.com_neo4jrestores.yaml; \
 		install -m 0644 "$${OPERATOR_DIR}/config/crd/bases/neo4j.com_neo4jstudios.yaml" $(CHART_DIR)/crds/neo4j.com_neo4jstudios.yaml
 
+GENERATED_PATHS = config/ definition/ $(CHART_DIR)/generated/ $(CHART_DIR)/crds/ \
+	$(CHART_DIR)/Chart.yaml $(CHART_DIR)/templates/_openeverest_contract.tpl \
+	$(CHART_DIR)/templates/openeverest-compat-check.yaml
+
 .PHONY: verify
-verify: ## Verify that generated files are up-to-date (for CI).
+verify: ## Verify that generated files are up-to-date and the chart is stamped with the OpenEverest it is built against (for CI).
 	@$(MAKE) generate
-	@if git diff --quiet -- config/ definition/ $(CHART_DIR)/generated/ $(CHART_DIR)/crds/; then \
+	@if [ -z "$$(git status --porcelain -- $(GENERATED_PATHS))" ]; then \
 		echo "Generated files are up-to-date."; \
 	else \
 		echo "ERROR: Generated files are out of date. Run 'make generate' and commit the changes."; \
-		git diff -- config/ definition/ $(CHART_DIR)/generated/ $(CHART_DIR)/crds/; \
+		git status --short -- $(GENERATED_PATHS); \
+		git diff -- $(GENERATED_PATHS); \
 		exit 1; \
 	fi
+	go tool provider-sdk verify --chart-dir $(CHART_DIR)
 
 ##@ Build
 
