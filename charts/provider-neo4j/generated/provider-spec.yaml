@@ -394,6 +394,11 @@ spec:
                   - celExpr: spec.components.engine.replicas == 1 || spec.components.engine.replicas % 2 == 1
                     message: Primary members must be one or an odd number.
                 min: 1
+                modes:
+                  edit:
+                    celExpressions:
+                      - celExpr: '!has(original.spec.components.engine.replicas) || (spec.components.engine.replicas == 1) == (original.spec.components.engine.replicas == 1)'
+                        message: A cluster cannot change between one primary and several.
                 required: true
             storageClass:
               dataSource:

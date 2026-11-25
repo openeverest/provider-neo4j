@@ -173,6 +173,14 @@ ALTER DATABASE neo4j SET TOPOLOGY 3 PRIMARIES 2 SECONDARIES
 Run it again after adding members to a pool; on a scale-in, the operator narrows the topology
 itself. Databases you create later get the pools by default.
 
+### Scaling primaries
+
+`spec.components.engine.replicas` scales the primaries between three and more, in odd
+numbers. A cluster created with one primary keeps one: the operator cannot grow its system
+database to several primaries, nor shrink a multi-primary one to a single primary, so
+admission refuses both. To move between them, create a new Instance with the target count
+and restore a backup into it.
+
 ### High availability
 
 A Cluster gets two defaults:
@@ -433,7 +441,7 @@ make test-e2e-cluster                 # every suite, or one of:
 make test-e2e-cluster-standalone      # default TLS, version upgrade, LoadBalancer
 make test-e2e-cluster-tls             # issuer, additionalNames maintenance, TLS rules
 make test-e2e-cluster-backup-restore  # backup, in-place restore, seeding a new Instance
-make test-e2e-cluster-cluster         # three primaries, adding a read pool
+make test-e2e-cluster-cluster         # three primaries, adding a read pool, primary-count rules
 ```
 
 The backup and cluster suites run Neo4j Enterprise under its evaluation license

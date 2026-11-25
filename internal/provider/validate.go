@@ -237,10 +237,32 @@ func validateTransitions(in, old *corev1alpha1.Instance, params definition.Param
 		errs = append(errs, field.Forbidden(field.NewPath("spec", "topology", "type"),
 			"Neo4j topology mode cannot change after creation"))
 	}
+	errs = append(errs, validatePrimariesTransition(in, old)...)
 	oldParams := definition.Parameters{}
 	_ = decodeRaw(old.Spec.Parameters, &oldParams)
 	errs = append(errs, validateTLSTransition(oldParams, params)...)
 	return errs
+}
+
+// validatePrimariesTransition rejects what the operator cannot do: grow the
+// system database from a single primary, or shrink a multi-primary one to a
+// single primary. Between three primaries and more, it scales either way.
+func validatePrimariesTransition(in, old *corev1alpha1.Instance) field.ErrorList {
+	if in.GetTopologyType() != common.TopologyCluster || old.GetTopologyType() != common.TopologyCluster {
+		return nil
+	}
+	from := replicaCount(old.Spec.Components[common.ComponentEngine], 3)
+	to := replicaCount(in.Spec.Components[common.ComponentEngine], 3)
+	if (from == 1) == (to == 1) {
+		return nil
+	}
+	path := field.NewPath("spec", "components").Key(common.ComponentEngine).Child("replicas")
+	if from == 1 {
+		return field.ErrorList{field.Forbidden(path,
+			"a cluster created with one primary cannot grow to more primaries; create a new cluster with the target count and restore a backup into it")}
+	}
+	return field.ErrorList{field.Forbidden(path,
+		"a cluster of several primaries cannot shrink to one primary; keep at least three")}
 }
 
 func validateUserSecret(c *controller.Context) (field.ErrorList, error) {
