@@ -5,8 +5,10 @@ kind: Instance
 metadata:
   name: graph
 status:
-  (length(pendingMaintenance)): 1
-  (starts_with(pendingMaintenance[0].approvalToken, 'upgrade-to-')): true
+  # Guard against null: an expression error fails the assert at once instead
+  # of retrying until the provider has written the status.
+  (length(pendingMaintenance || `[]`)): 1
+  (starts_with(pendingMaintenance[0].approvalToken || '', 'upgrade-to-')): true
   pendingMaintenance:
     - severity: Downtime
   (conditions[?type == 'MaintenancePending'].status | [0]): "True"
