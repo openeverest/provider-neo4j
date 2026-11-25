@@ -117,6 +117,16 @@ func status(c *controller.Context) (controller.Status, error) {
 	}
 
 	st := withDesiredReplicas(c, observe(observation{neo4j: neo4j, sets: sets.Items, restore: restore}))
+	if st.Converged {
+		pending, err := passwordChangePending(c)
+		if err != nil {
+			return controller.Status{}, err
+		}
+		if pending {
+			st.Converged = false
+			st.Message = "Changing the password of user " + authUser
+		}
+	}
 
 	// Clients told the database is available must find where to connect,
 	// also while a change is still rolling out.
