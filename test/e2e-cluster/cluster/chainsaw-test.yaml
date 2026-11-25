@@ -6,7 +6,9 @@ spec:
   description: |
     An Enterprise cluster of three primaries forms with cluster TLS, a
     PodDisruptionBudget and spread members, replicates a write to every
-    primary, and grows by a read pool without losing data.
+    primary, and grows by a read pool without losing data. Admission
+    refuses the primary-count changes the operator cannot perform: from
+    one primary to several, and from several to one.
   catch:
     - script:
         content: kubectl -n $NAMESPACE get instance,neo4j,pods,svc,certificate,pdb -o yaml
@@ -25,6 +27,37 @@ spec:
       try:
         - assert:
             file: 00-assert.yaml
+
+    - name: single-primary-cannot-grow
+      try:
+        - apply:
+            file: 05-single-primary.yaml
+        # The bootstrap gate of a single primary is 1, which the operator
+        # refuses to change and to pair with more primaries.
+        - assert:
+            timeout: 2m
+            resource:
+              apiVersion: neo4j.com/v1
+              kind: Neo4j
+              metadata:
+                name: solo
+              spec:
+                topology:
+                  minimumMembers: 1
+                  primaries:
+                    members: 1
+        - script:
+            content: |
+              kubectl -n $NAMESPACE patch instance solo --type=merge \
+                -p '{"spec":{"components":{"engine":{"replicas":3}}}}'
+            check:
+              ($error != null): true
+              (contains($stderr, 'cannot grow to more primaries')): true
+        - delete:
+            ref:
+              apiVersion: core.openeverest.io/v1alpha1
+              kind: Instance
+              name: solo
 
     - name: create-cluster
       try:
@@ -62,3 +95,13 @@ spec:
               set -eu
               count=$(../cypher.sh graph "MATCH (n:E2E) RETURN count(n) AS c" | tail -n 1)
               test "$count" = 1
+
+    - name: primaries-cannot-shrink-to-one
+      try:
+        - script:
+            content: |
+              kubectl -n $NAMESPACE patch instance graph --type=merge \
+                -p '{"spec":{"components":{"engine":{"replicas":1}}}}'
+            check:
+              ($error != null): true
+              (contains($stderr, 'cannot shrink to one primary')): true

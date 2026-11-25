@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -367,4 +368,63 @@ func TestBuildNeo4jHoldsTheBackupCredentialsOfAHeldStorage(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, got.Spec.Security)
 	assert.Equal(t, live.Spec.Security.CloudIdentity, got.Spec.Security.CloudIdentity)
+}
+
+// TestPrimariesScaling covers the primary-count changes: the operator scales
+// between three primaries and more, but never from or to a single primary,
+// and the Neo4j keeps the bootstrap gate it was created with.
+func TestPrimariesScaling(t *testing.T) {
+	t.Parallel()
+	withPrimaries := func(n int32) *corev1alpha1.Instance {
+		instance := clusterInstance(t)
+		engine := validEngine()
+		engine.Replicas = &n
+		instance.Spec.Components[common.ComponentEngine] = engine
+		return instance
+	}
+	tests := []struct {
+		from, to int32
+		// rejected tells whether admission refuses the change.
+		rejected bool
+	}{
+		{from: 1, to: 3, rejected: true},
+		{from: 3, to: 1, rejected: true},
+		{from: 3, to: 5},
+		{from: 5, to: 3},
+	}
+	for _, tt := range tests {
+		t.Run(fmt.Sprintf("%d to %d", tt.from, tt.to), func(t *testing.T) {
+			t.Parallel()
+			res := (&Provider{}).Validate(controller.ValidationInput{
+				Instance: withPrimaries(tt.to), Old: withPrimaries(tt.from),
+			})
+			var want []string
+			if tt.rejected {
+				want = []string{"spec.components[engine].replicas"}
+			}
+			assert.Equal(t, want, errorFields(res.Errors), "errors: %v", res.Errors)
+
+			created, err := buildNeo4j(testContext(t, withPrimaries(tt.from)))
+			require.NoError(t, err)
+			created.Namespace = "default"
+			got, err := buildNeo4j(testContext(t, withPrimaries(tt.to), created))
+			require.NoError(t, err)
+			assert.Equal(t, tt.to, got.Spec.Topology.Primaries.Members)
+			assert.Equal(t, created.Spec.Topology.MinimumMembers, got.Spec.Topology.MinimumMembers,
+				"minimumMembers is immutable on the Neo4j")
+		})
+	}
+}
+
+// A Neo4j created without the bootstrap gate keeps it unset.
+func TestBuildNeo4jKeepsAnUnsetMinimumMembers(t *testing.T) {
+	t.Parallel()
+	live := &neo4jv1.Neo4j{ObjectMeta: metav1.ObjectMeta{Name: "graph", Namespace: "default"}}
+	got, err := buildNeo4j(testContext(t, clusterInstance(t), live))
+	require.NoError(t, err)
+	assert.Nil(t, got.Spec.Topology.MinimumMembers)
+
+	got, err = buildNeo4j(testContext(t, clusterInstance(t)))
+	require.NoError(t, err)
+	assert.Equal(t, int32Ptr(3), got.Spec.Topology.MinimumMembers)
 }
