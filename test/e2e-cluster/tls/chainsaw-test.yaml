@@ -73,12 +73,12 @@ spec:
             content: ./verify-tls.sh graph-tls graph.example.test
             check:
               ($error == null): true
-              (contains($stdout, 'Verify return code: 0 (ok)')): true
+              "(contains($stdout, 'Verify return code: 0 (ok)'))": true
         - script:
             content: ./verify-tls.sh graph-tls graph-tls.$NAMESPACE.svc.cluster.local
             check:
               ($error == null): true
-              (contains($stdout, 'Verify return code: 0 (ok)')): true
+              "(contains($stdout, 'Verify return code: 0 (ok)'))": true
         - script:
             content: |
               set -eu
@@ -169,4 +169,4 @@ spec:
             content: ./verify-tls.sh graph-tls graph2.example.test
             check:
               ($error == null): true
-              (contains($stdout, 'Verify return code: 0 (ok)')): true
+              "(contains($stdout, 'Verify return code: 0 (ok)'))": true
