@@ -57,6 +57,11 @@ func buildNeo4j(c *controller.Context) (*neo4jv1.Neo4j, error) {
 		}
 	}
 
+	live, err := liveNeo4j(c)
+	if err != nil {
+		return nil, err
+	}
+
 	mode := neo4jv1.TopologyModeStandalone
 	topology := neo4jv1.TopologySpec{Mode: mode}
 	if in.GetTopologyType() == common.TopologyCluster {
@@ -67,7 +72,13 @@ func buildNeo4j(c *controller.Context) (*neo4jv1.Neo4j, error) {
 		}
 		applyPoolParameters(c, &topology.Primaries.Plugins, &topology.Primaries.Resources, engine)
 		topology.Secondaries = buildSecondaryPools(c)
-		topology.MinimumMembers = minimumMembers(topology.Primaries.Members)
+		// The operator reads minimumMembers at bootstrap only and refuses to
+		// change it, so a Neo4j that exists keeps its own value.
+		if live != nil {
+			topology.MinimumMembers = live.Spec.Topology.MinimumMembers
+		} else {
+			topology.MinimumMembers = minimumMembers(topology.Primaries.Members)
+		}
 		topology.DefaultPrimariesCount = minimumMembers(topology.Primaries.Members)
 	}
 
@@ -136,11 +147,7 @@ func buildNeo4j(c *controller.Context) (*neo4jv1.Neo4j, error) {
 	}
 	if mode == neo4jv1.TopologyModeCluster {
 		spec.PodDisruptionBudget = buildPodDisruptionBudget(topology)
-		spread, err := spreadsMembersByDefault(c)
-		if err != nil {
-			return nil, err
-		}
-		if spread && (engine.SchedulingPolicy == nil || engine.SchedulingPolicy.Affinity == nil) {
+		if spreadsMembersByDefault(live) && (engine.SchedulingPolicy == nil || engine.SchedulingPolicy.Affinity == nil) {
 			if spec.Scheduling == nil {
 				spec.Scheduling = &neo4jv1.SchedulingSpec{}
 			}
@@ -297,21 +304,29 @@ func memberCount(topology neo4jv1.TopologySpec) int32 {
 	return members
 }
 
+// liveNeo4j returns the Neo4j this Instance owns, or nil before it exists.
+func liveNeo4j(c *controller.Context) (*neo4jv1.Neo4j, error) {
+	live := &neo4jv1.Neo4j{}
+	if err := c.Get(live, c.Name()); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("get Neo4j: %w", err)
+	}
+	return live, nil
+}
+
 // spreadsMembersByDefault tells whether a cluster without an affinity of its
 // own prefers a node per member. The preference is part of the pod template,
 // so adding it to a running cluster would restart every member: only a new
 // cluster, or one that already has it, gets it.
-func spreadsMembersByDefault(c *controller.Context) (bool, error) {
-	live := &neo4jv1.Neo4j{}
-	if err := c.Get(live, c.Name()); err != nil {
-		if apierrors.IsNotFound(err) {
-			return true, nil
-		}
-		return false, fmt.Errorf("get Neo4j: %w", err)
+func spreadsMembersByDefault(live *neo4jv1.Neo4j) bool {
+	if live == nil {
+		return true
 	}
 	scheduling := live.Spec.Scheduling
 	return scheduling != nil && scheduling.Affinity != nil &&
-		scheduling.Affinity.PodAntiAffinity == antiAffinitySoft, nil
+		scheduling.Affinity.PodAntiAffinity == antiAffinitySoft
 }
 
 func buildScheduling(engine corev1alpha1.ComponentSpec) *neo4jv1.SchedulingSpec {

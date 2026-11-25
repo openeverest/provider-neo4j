@@ -50,6 +50,8 @@ func New() *Provider {
 			controller.WatchExternal(&appsv1.StatefulSet{}, handler.EnqueueRequestsFromMapFunc(enqueueStatefulSetInstance())),
 		},
 	}}
+	p.WatchConfigs = append(p.WatchConfigs,
+		controller.WatchExternal(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(p.enqueueUserSecretInstances)))
 	// Runtime-generated BackupClasses are stamped by the provider release and
 	// installed with the chart.
 	p.SetShippedBackupClasses(backupclasses.Shipped())
@@ -83,6 +85,9 @@ func (p *Provider) Sync(c *controller.Context) error {
 		return err
 	}
 	if err := labelPods(c); err != nil {
+		return err
+	}
+	if err := rotatePassword(c); err != nil {
 		return err
 	}
 	if c.Instance().Spec.DataSource != nil {
