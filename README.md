@@ -81,6 +81,25 @@ An Instance in a namespace the operator does not watch gets no pods and no error
 controller never watches its own namespace, so do not create Instances in the release
 namespace.
 
+### Upgrading the provider
+
+A provider upgrade does not restart Neo4j on its own. When the new release would change the
+Neo4j resource of an existing Instance, the provider keeps the resource as the previous release
+left it and lists an `upgrade-to-<release>` action in the Instance's `status.pendingMaintenance`
+(`RollingRestart` for a Cluster, `Downtime` for a Standalone). Approve it when it suits you:
+
+```sh
+kubectl patch instance <name> -n <namespace> --type=merge \
+  -p '{"spec":{"maintenance":{"approved":"upgrade-to-<release>"}}}'
+```
+
+or let such changes apply by themselves with `spec.maintenance.autoApproveUpTo`. Edits made to
+the Instance while the action is pending wait for the same approval. Instances the upgrade does
+not change take the new release without an action.
+
+Not covered: an upgrade of the bundled Neo4j operator that renders the pods differently, and
+certificate renewals, after which the operator restarts the pods to load the new certificate.
+
 ## Presets
 
 The chart installs a `ClusterInstancePreset` per topology. `neo4j-standalone` (Community) is
@@ -181,8 +200,9 @@ A Cluster gets two defaults:
 - a preference to run each member of a pool on its own node (soft pod anti-affinity).
   `spec.components.engine.schedulingPolicy.affinity` replaces it.
 
-The preference is part of the pod template. A cluster created by provider 0.1.x does not
-get it, because adding it would restart every member.
+The preference is part of the pod template, so adding it restarts every member. A cluster
+created by provider 0.1.0 gets it with the `upgrade-to-<release>` maintenance action (see
+[Upgrading the provider](#upgrading-the-provider)) and keeps running without it until you approve.
 
 ### External access
 
@@ -459,6 +479,7 @@ make test-e2e-cluster-standalone      # default TLS, version upgrade, LoadBalanc
 make test-e2e-cluster-tls             # issuer, additionalNames maintenance, TLS rules
 make test-e2e-cluster-backup-restore  # backup, in-place restore, seeding a new Instance
 make test-e2e-cluster-cluster         # three primaries, adding a read pool
+make test-e2e-cluster-upgrade         # provider upgrade waits for maintenance approval
 make test-e2e-cluster-credentials     # changing the password in the user Secret
 ```
 

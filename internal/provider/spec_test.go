@@ -276,31 +276,12 @@ func TestClusterSpreadsMembersByDefault(t *testing.T) {
 		}
 		return n.Spec.Scheduling.Affinity.PodAntiAffinity
 	}
-	live := func(scheduling *neo4jv1.SchedulingSpec) *neo4jv1.Neo4j {
-		return &neo4jv1.Neo4j{
-			ObjectMeta: metav1.ObjectMeta{Name: "graph", Namespace: "default"},
-			Spec:       neo4jv1.Neo4jSpec{Scheduling: scheduling},
-		}
-	}
-	soft := &neo4jv1.SchedulingSpec{Affinity: &neo4jv1.SchedulingAffinitySpec{PodAntiAffinity: "soft"}}
 
-	t.Run("a new cluster prefers a node per member", func(t *testing.T) {
+	t.Run("a cluster prefers a node per member", func(t *testing.T) {
 		t.Parallel()
 		got, err := buildNeo4j(testContext(t, clusterInstance(t)))
 		require.NoError(t, err)
 		assert.Equal(t, antiAffinitySoft, preset(got))
-	})
-	t.Run("and keeps the preference", func(t *testing.T) {
-		t.Parallel()
-		got, err := buildNeo4j(testContext(t, clusterInstance(t), live(soft)))
-		require.NoError(t, err)
-		assert.Equal(t, antiAffinitySoft, preset(got))
-	})
-	t.Run("a cluster running without it is not restarted to add it", func(t *testing.T) {
-		t.Parallel()
-		got, err := buildNeo4j(testContext(t, clusterInstance(t), live(nil)))
-		require.NoError(t, err)
-		assert.Nil(t, got.Spec.Scheduling)
 	})
 	t.Run("the Instance's own affinity replaces it", func(t *testing.T) {
 		t.Parallel()
@@ -309,7 +290,7 @@ func TestClusterSpreadsMembersByDefault(t *testing.T) {
 		own := &corev1.Affinity{NodeAffinity: &corev1.NodeAffinity{}}
 		engine.SchedulingPolicy = &commonv1alpha1.SchedulingPolicy{Affinity: own}
 		instance.Spec.Components[common.ComponentEngine] = engine
-		got, err := buildNeo4j(testContext(t, instance, live(soft)))
+		got, err := buildNeo4j(testContext(t, instance))
 		require.NoError(t, err)
 		assert.Empty(t, preset(got))
 		assert.Equal(t, own, got.Spec.Scheduling.Affinity.Custom)

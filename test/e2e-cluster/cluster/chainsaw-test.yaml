@@ -6,7 +6,9 @@ spec:
   description: |
     An Enterprise cluster of three primaries forms with cluster TLS, a
     PodDisruptionBudget and spread members, replicates a write to every
-    primary, and grows by a read pool without losing data.
+    primary, and grows by a read pool without losing data. A cluster that
+    provider 0.1.0 created without spread members gets them only once the
+    owner approves the provider upgrade.
   catch:
     - script:
         content: kubectl -n $NAMESPACE get instance,neo4j,pods,svc,certificate,pdb -o yaml
@@ -49,6 +51,45 @@ spec:
                   "MATCH (n:E2E) RETURN count(n) AS c" | tail -n 1)
                 test "$count" = 1
               done
+
+    # Make the Neo4j look as provider 0.1.0 left it: no anti-affinity and no
+    # release annotation (0.0.1 stands in for it). The operator rolls the
+    # members onto that state; adding the anti-affinity back restarts every
+    # member, so this build holds it.
+    - name: spread-waits-for-approval
+      try:
+        - script:
+            content: |
+              kubectl -n $NAMESPACE patch neo4j graph --type=merge -p '{
+                "metadata": {"annotations": {"neo4j.openeverest.io/provider-release": "0.0.1"}},
+                "spec": {"scheduling": null}}'
+        - assert:
+            timeout: 15m
+            file: 15-held-assert.yaml
+        - script:
+            timeout: 2m
+            content: |
+              set -eu
+              rev() { kubectl -n $NAMESPACE get statefulset graph-primary -o jsonpath='{.status.updateRevision}'; }
+              before=$(rev)
+              sleep 60
+              test "$(rev)" = "$before"
+        - assert:
+            file: 15-held-assert.yaml
+        - script:
+            content: |
+              set -eu
+              token=$(kubectl -n $NAMESPACE get instance graph -o jsonpath='{.status.pendingMaintenance[0].approvalToken}')
+              kubectl -n $NAMESPACE patch instance graph --type=merge \
+                -p "{\"spec\":{\"maintenance\":{\"approved\":\"$token\"}}}"
+        - assert:
+            timeout: 15m
+            file: 15-approved-assert.yaml
+        - script:
+            content: |
+              set -eu
+              count=$(../cypher.sh graph "MATCH (n:E2E) RETURN count(n) AS c" | tail -n 1)
+              test "$count" = 1
 
     - name: add-read-pool
       try:

@@ -72,8 +72,14 @@ func (p *Provider) Sync(c *controller.Context) error {
 	if err := approveAdditionalNames(c, neo4j); err != nil {
 		return err
 	}
-	if err := c.Apply(neo4j); err != nil {
-		return fmt.Errorf("apply Neo4j: %w", err)
+	apply, err := holdProviderUpgrade(c, neo4j)
+	if err != nil {
+		return err
+	}
+	if apply {
+		if err := c.Apply(neo4j); err != nil {
+			return fmt.Errorf("apply Neo4j: %w", err)
+		}
 	}
 	if err := reconcileBackupSchedules(c, neo4j); err != nil {
 		return err

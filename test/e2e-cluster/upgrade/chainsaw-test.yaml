@@ -1,0 +1,135 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: e2e-upgrade
+spec:
+  description: |
+    A provider upgrade restarts nothing until the owner approves. A standalone
+    created by the previous release keeps its pod when this build takes over.
+    When a release would change the Neo4j resource, the change waits on
+    status.pendingMaintenance and the pod keeps running until the owner
+    approves the action.
+  catch:
+    - script:
+        content: kubectl -n $NAMESPACE get instance,neo4j,statefulset,pods -o yaml
+    - script:
+        content: kubectl -n $NAMESPACE get events --sort-by=.lastTimestamp | tail -40
+    - podLogs:
+        namespace: provider-system
+        selector: app.kubernetes.io/name=provider-neo4j
+        tail: 100
+    - podLogs:
+        namespace: provider-system
+        selector: app.kubernetes.io/name=neo4j-operator
+        tail: 100
+  steps:
+    - name: provider-and-operator-running
+      try:
+        - assert:
+            file: 00-assert.yaml
+
+    - name: install-previous-release
+      try:
+        - script:
+            timeout: 6m
+            content: |
+              set -eu
+              helm upgrade provider-neo4j oci://ghcr.io/openeverest/charts/provider-neo4j \
+                --version "$NEO4J_PROVIDER_PREVIOUS_RELEASE" --namespace provider-system \
+                --reset-values --skip-crds --wait --timeout 5m
+        - assert:
+            file: 00-assert.yaml
+
+    - name: create-instance
+      try:
+        - apply:
+            file: 10-create-instance.yaml
+        - assert:
+            timeout: 10m
+            file: 10-assert.yaml
+        - script:
+            content: |
+              ../cypher.sh graph "CREATE (:E2E {v: 1})"
+
+    - name: upgrade-provider
+      try:
+        - script:
+            content: |
+              set -eu
+              kubectl -n $NAMESPACE get pod -l app.kubernetes.io/instance=graph \
+                -o jsonpath='{.items[0].metadata.uid}' > /tmp/$NAMESPACE-pod
+        - script:
+            timeout: 6m
+            content: make -C "$PROVIDER_ROOT_PATH" deploy-provider-e2e
+        # The annotation shows that this build has applied the Neo4j.
+        - script:
+            timeout: 3m
+            content: |
+              set -eu
+              release=$(kubectl get provider neo4j -o jsonpath='{.spec.release.version}')
+              for _ in $(seq 60); do
+                got=$(kubectl -n $NAMESPACE get neo4j graph \
+                  -o jsonpath='{.metadata.annotations.neo4j\.openeverest\.io/provider-release}')
+                [ "$got" = "$release" ] && exit 0
+                sleep 3
+              done
+              echo "Neo4j was applied by release '$got', want '$release'"
+              exit 1
+        - assert:
+            file: 20-assert.yaml
+        - script:
+            timeout: 2m
+            content: |
+              set -eu
+              sleep 60
+              pod=$(kubectl -n $NAMESPACE get pod -l app.kubernetes.io/instance=graph -o jsonpath='{.items[0].metadata.uid}')
+              restarts=$(kubectl -n $NAMESPACE get pod -l app.kubernetes.io/instance=graph \
+                -o jsonpath='{.items[0].status.containerStatuses[0].restartCount}')
+              test "$pod" = "$(cat /tmp/$NAMESPACE-pod)"
+              test "$restarts" = 0
+
+    # Make the Neo4j look as if an earlier release had applied it with a
+    # different CPU limit. The operator rolls the pod onto that state; then
+    # this build would change it back, which restarts the pod, so it holds.
+    - name: changed-rendering-is-held
+      try:
+        - script:
+            content: |
+              kubectl -n $NAMESPACE patch neo4j graph --type=merge -p '{
+                "metadata": {"annotations": {"neo4j.openeverest.io/provider-release": "0.0.1"}},
+                "spec": {"resources": {"limits": {"cpu": "1100m"}}}}'
+        - assert:
+            timeout: 10m
+            file: 30-assert.yaml
+        - script:
+            timeout: 2m
+            content: |
+              set -eu
+              uid() { kubectl -n $NAMESPACE get pod -l app.kubernetes.io/instance=graph -o jsonpath='{.items[0].metadata.uid}'; }
+              before=$(uid)
+              sleep 60
+              test "$(uid)" = "$before"
+              echo "$before" > /tmp/$NAMESPACE-pod
+        - assert:
+            file: 30-assert.yaml
+
+    - name: approve-and-apply
+      try:
+        - script:
+            content: |
+              set -eu
+              release=$(kubectl get provider neo4j -o jsonpath='{.spec.release.version}')
+              token=$(kubectl -n $NAMESPACE get instance graph -o jsonpath='{.status.pendingMaintenance[0].approvalToken}')
+              test "$token" = "upgrade-to-$release"
+              kubectl -n $NAMESPACE patch instance graph --type=merge \
+                -p "{\"spec\":{\"maintenance\":{\"approved\":\"$token\"}}}"
+        - assert:
+            timeout: 10m
+            file: 40-assert.yaml
+        - script:
+            content: |
+              set -eu
+              pod=$(kubectl -n $NAMESPACE get pod -l app.kubernetes.io/instance=graph -o jsonpath='{.items[0].metadata.uid}')
+              test "$pod" != "$(cat /tmp/$NAMESPACE-pod)"
+              count=$(../cypher.sh graph "MATCH (n:E2E) RETURN count(n) AS c" | tail -n 1)
+              test "$count" = 1

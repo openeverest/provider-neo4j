@@ -1,0 +1,33 @@
+# Approved, the provider applies its configuration and the operator rolls the
+# pod onto it.
+apiVersion: core.openeverest.io/v1alpha1
+kind: Instance
+metadata:
+  name: graph
+status:
+  (pendingMaintenance == null): true
+  (conditions[?type == 'Ready'].status | [0]): "True"
+---
+apiVersion: neo4j.com/v1
+kind: Neo4j
+metadata:
+  name: graph
+spec:
+  resources:
+    limits:
+      cpu: "1"
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  labels:
+    app.kubernetes.io/instance: graph
+spec:
+  template:
+    spec:
+      (containers[?name == 'neo4j'].resources.limits.cpu | [0]): "1"
+status:
+  replicas: 1
+  readyReplicas: 1
+  updatedReplicas: 1
+  (currentRevision == updateRevision): true

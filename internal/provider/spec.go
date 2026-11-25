@@ -7,7 +7,6 @@ import (
 
 	neo4jv1 "github.com/neo4j/neo4j-kubernetes-operator/src/api/v1"
 	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/util/intstr"
 
 	corev1alpha1 "github.com/openeverest/openeverest/v2/api/core/v1alpha1"
@@ -136,11 +135,10 @@ func buildNeo4j(c *controller.Context) (*neo4jv1.Neo4j, error) {
 	}
 	if mode == neo4jv1.TopologyModeCluster {
 		spec.PodDisruptionBudget = buildPodDisruptionBudget(topology)
-		spread, err := spreadsMembersByDefault(c)
-		if err != nil {
-			return nil, err
-		}
-		if spread && (engine.SchedulingPolicy == nil || engine.SchedulingPolicy.Affinity == nil) {
+		// The preference is part of the pod template. On a cluster created
+		// without it, adding it restarts every member, so it waits for the
+		// provider upgrade's maintenance approval (holdProviderUpgrade).
+		if engine.SchedulingPolicy == nil || engine.SchedulingPolicy.Affinity == nil {
 			if spec.Scheduling == nil {
 				spec.Scheduling = &neo4jv1.SchedulingSpec{}
 			}
@@ -271,6 +269,17 @@ const antiAffinitySoft neo4jv1.PodAntiAffinityPreset = "soft"
 // take one member at a time. The budget covers the pods of every pool, so a
 // lower minimum could take two primaries of three and lose the quorum.
 func buildPodDisruptionBudget(topology neo4jv1.TopologySpec) *neo4jv1.PodDisruptionBudgetSpec {
+	members := memberCount(topology)
+	if members < 2 {
+		// A budget for a single pod would block every drain.
+		return nil
+	}
+	minAvailable := intstr.FromInt32(members - 1)
+	return &neo4jv1.PodDisruptionBudgetSpec{Enabled: true, MinAvailable: &minAvailable}
+}
+
+// memberCount counts the servers of every pool; a standalone has none.
+func memberCount(topology neo4jv1.TopologySpec) int32 {
 	members := int32(0)
 	if topology.Primaries != nil {
 		members += topology.Primaries.Members
@@ -283,29 +292,7 @@ func buildPodDisruptionBudget(topology neo4jv1.TopologySpec) *neo4jv1.PodDisrupt
 			members += topology.Secondaries.Read.Members
 		}
 	}
-	if members < 2 {
-		// A budget for a single pod would block every drain.
-		return nil
-	}
-	minAvailable := intstr.FromInt32(members - 1)
-	return &neo4jv1.PodDisruptionBudgetSpec{Enabled: true, MinAvailable: &minAvailable}
-}
-
-// spreadsMembersByDefault tells whether a cluster without an affinity of its
-// own prefers a node per member. The preference is part of the pod template,
-// so adding it to a running cluster would restart every member: only a new
-// cluster, or one that already has it, gets it.
-func spreadsMembersByDefault(c *controller.Context) (bool, error) {
-	live := &neo4jv1.Neo4j{}
-	if err := c.Get(live, c.Name()); err != nil {
-		if apierrors.IsNotFound(err) {
-			return true, nil
-		}
-		return false, fmt.Errorf("get Neo4j: %w", err)
-	}
-	scheduling := live.Spec.Scheduling
-	return scheduling != nil && scheduling.Affinity != nil &&
-		scheduling.Affinity.PodAntiAffinity == antiAffinitySoft, nil
+	return members
 }
 
 func buildScheduling(engine corev1alpha1.ComponentSpec) *neo4jv1.SchedulingSpec {
