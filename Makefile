@@ -12,9 +12,13 @@ IMG ?= ghcr.io/openeverest/provider-neo4j-dev:latest
 # Image URL for OpenEverest controller used in integration tests (must be pre-built).
 OPENEVEREST_CONTROLLER_IMG ?= ghcr.io/openeverest/openeverest-controller-dev:0.0.0
 
-# Split IMG into repository and tag for Helm values
-_IMG_REPO = $(firstword $(subst :, ,$(IMG)))
+# Split IMG into repository and tag for Helm values; the repository may carry a
+# registry port.
 _IMG_TAG  = $(lastword $(subst :, ,$(IMG)))
+_IMG_REPO = $(patsubst %:$(_IMG_TAG),%,$(IMG))
+
+# k3d imports IMG into the nodes; set Always to pull it from a registry.
+E2E_IMAGE_PULL_POLICY ?= Never
 
 # k3d cluster name (must match dev/k3d_config.yaml metadata.name)
 K3D_CLUSTER_NAME ?= provider-neo4j-test
@@ -234,7 +238,7 @@ deploy-provider-e2e: helm-deps ## Deploy the provider with a running Neo4j opera
 		--skip-crds \
 		--set image.repository=$(_IMG_REPO) \
 		--set image.tag=$(_IMG_TAG) \
-		--set image.pullPolicy=Never \
+		--set image.pullPolicy=$(E2E_IMAGE_PULL_POLICY) \
 		--wait --timeout 5m
 
 ##@ Local Development Cluster

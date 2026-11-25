@@ -48,7 +48,8 @@ spec:
             timeout: 10m
             file: 10-assert.yaml
         - script:
-            content: ../cypher.sh graph "CREATE (:E2E {v: 1})"
+            content: |
+              ../cypher.sh graph "CREATE (:E2E {v: 1})"
 
     - name: upgrade-provider
       try:
