@@ -14,6 +14,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	backupv1alpha1 "github.com/openeverest/openeverest/v2/api/backup/v1alpha1"
 	corev1alpha1 "github.com/openeverest/openeverest/v2/api/core/v1alpha1"
@@ -38,7 +39,17 @@ func TestProviderUpgradeWaitsForMaintenance(t *testing.T) {
 		} {
 			require.NoError(t, add(scheme))
 		}
-		return fake.NewClientBuilder().WithScheme(scheme).WithObjects(providerSpecFixture(t), in).Build()
+		// The fake client persists dry-run applies; the API server does not.
+		dryRunApply := func(ctx context.Context, cl client.WithWatch, obj runtime.ApplyConfiguration, opts ...client.ApplyOption) error {
+			o := &client.ApplyOptions{}
+			o.ApplyOptions(opts)
+			if len(o.DryRun) > 0 {
+				return nil
+			}
+			return cl.Apply(ctx, obj, opts...)
+		}
+		return fake.NewClientBuilder().WithScheme(scheme).WithObjects(providerSpecFixture(t), in).
+			WithInterceptorFuncs(interceptor.Funcs{Apply: dryRunApply}).Build()
 	}
 	sync := func(t *testing.T, cl client.Client, in *corev1alpha1.Instance) *controller.Context {
 		t.Helper()
@@ -147,6 +158,8 @@ func TestProviderUpgradeWaitsForMaintenance(t *testing.T) {
 		pending := c.GetPendingMaintenance()
 		require.Len(t, pending, 1)
 		assert.Equal(t, controller.MaintenanceRollingRestart, pending[0].Severity)
-		assert.Equal(t, []string{"-XX:+UseG1GC"}, live(t, cl).Spec.Config.JVM.AdditionalArguments)
+		got := live(t, cl)
+		require.NotNil(t, got.Spec.Config.JVM)
+		assert.Equal(t, []string{"-XX:+UseG1GC"}, got.Spec.Config.JVM.AdditionalArguments)
 	})
 }
