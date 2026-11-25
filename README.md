@@ -81,6 +81,25 @@ An Instance in a namespace the operator does not watch gets no pods and no error
 controller never watches its own namespace, so do not create Instances in the release
 namespace.
 
+### Upgrading the provider
+
+A provider upgrade does not restart Neo4j on its own. When the new release would change the
+Neo4j resource of an existing Instance, the provider keeps the resource as the previous release
+left it and lists an `upgrade-to-<release>` action in the Instance's `status.pendingMaintenance`
+(`RollingRestart` for a Cluster, `Downtime` for a Standalone). Approve it when it suits you:
+
+```sh
+kubectl patch instance <name> -n <namespace> --type=merge \
+  -p '{"spec":{"maintenance":{"approved":"upgrade-to-<release>"}}}'
+```
+
+or let such changes apply by themselves with `spec.maintenance.autoApproveUpTo`. Edits made to
+the Instance while the action is pending wait for the same approval. Instances the upgrade does
+not change take the new release without an action.
+
+Not covered: an upgrade of the bundled Neo4j operator that renders the pods differently, and
+certificate renewals, after which the operator restarts the pods to load the new certificate.
+
 ## Presets
 
 The chart installs a `ClusterInstancePreset` per topology. `neo4j-standalone` (Community) is
@@ -434,6 +453,7 @@ make test-e2e-cluster-standalone      # default TLS, version upgrade, LoadBalanc
 make test-e2e-cluster-tls             # issuer, additionalNames maintenance, TLS rules
 make test-e2e-cluster-backup-restore  # backup, in-place restore, seeding a new Instance
 make test-e2e-cluster-cluster         # three primaries, adding a read pool
+make test-e2e-cluster-upgrade         # provider upgrade waits for maintenance approval
 ```
 
 The backup and cluster suites run Neo4j Enterprise under its evaluation license

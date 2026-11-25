@@ -168,7 +168,10 @@ test-integration-monitoring: ## Run monitoring integration tests.
 # deploy-provider-e2e); the integration suites above run with it scaled to 0.
 .PHONY: test-e2e-cluster
 test-e2e-cluster: ## Run all e2e-cluster tests (needs a running Neo4j operator and cert-manager).
-	. ./test/vars.sh && chainsaw test --config ./test/e2e-cluster/.chainsaw.yaml ./test/e2e-cluster
+	. ./test/vars.sh && chainsaw test --config ./test/e2e-cluster/.chainsaw.yaml \
+		./test/e2e-cluster/standalone ./test/e2e-cluster/tls ./test/e2e-cluster/backup-restore ./test/e2e-cluster/cluster
+	@# The upgrade suite reinstalls the provider, so it runs once the others are done.
+	$(MAKE) test-e2e-cluster-upgrade
 
 .PHONY: test-e2e-cluster-standalone
 test-e2e-cluster-standalone: ## Run the standalone e2e-cluster test (TLS, version upgrade, LoadBalancer).
@@ -181,6 +184,10 @@ test-e2e-cluster-tls: ## Run the TLS e2e-cluster test (bring your own CA, additi
 .PHONY: test-e2e-cluster-backup-restore
 test-e2e-cluster-backup-restore: ## Run the backup, restore and data-source e2e-cluster test.
 	. ./test/vars.sh && chainsaw test --config ./test/e2e-cluster/.chainsaw.yaml ./test/e2e-cluster/backup-restore
+
+.PHONY: test-e2e-cluster-upgrade
+test-e2e-cluster-upgrade: ## Run the provider upgrade e2e-cluster test (maintenance gating; installs the previous release).
+	. ./test/vars.sh && chainsaw test --config ./test/e2e-cluster/.chainsaw.yaml ./test/e2e-cluster/upgrade
 
 .PHONY: test-e2e-cluster-cluster
 test-e2e-cluster-cluster: ## Run the Cluster topology e2e-cluster test.
