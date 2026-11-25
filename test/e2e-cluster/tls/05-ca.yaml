@@ -1,0 +1,27 @@
+# A CA of the test's own, standing in for a company CA.
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: bootstrap
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: company-ca
+spec:
+  isCA: true
+  commonName: E2E Company CA
+  secretName: company-ca
+  issuerRef:
+    name: bootstrap
+    kind: Issuer
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: company-ca
+spec:
+  ca:
+    secretName: company-ca

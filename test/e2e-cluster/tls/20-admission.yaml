@@ -1,0 +1,28 @@
+apiVersion: core.openeverest.io/v1alpha1
+kind: Instance
+metadata:
+  name: graph-invalid
+spec:
+  providerRef:
+    name: neo4j
+  topology:
+    type: standalone
+  version: "2026.07.1"
+  parameters:
+    tls:
+      certificateSecretName: some-tls
+      issuer:
+        name: pca
+        kind: Issuer
+        group: awspca.cert-manager.io
+      additionalNames:
+        - 10.0.0.1
+  components:
+    engine:
+      replicas: 1
+      resources:
+        limits:
+          cpu: "1"
+          memory: 2Gi
+      storage:
+        size: 2Gi

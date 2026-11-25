@@ -39,3 +39,5 @@ package provider
 
 // Provider-owned self-signed TLS issuer.
 // +kubebuilder:rbac:groups=cert-manager.io,resources=issuers;certificates,verbs=get;list;watch;create;update;patch;delete
+// A ClusterIssuer named in spec.parameters.tls.issuer is checked to exist.
+// +kubebuilder:rbac:groups=cert-manager.io,resources=clusterissuers,verbs=get;list;watch

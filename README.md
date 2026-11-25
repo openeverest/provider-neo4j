@@ -21,7 +21,7 @@ operator's `Neo4j`, `Neo4jBackup`, `Neo4jBackupSchedule`, and `Neo4jRestore` res
 | Cluster | Enterprise, with primary, analytics, and read pools |
 | Horizontal / vertical scaling | Yes, within the operator's supported transitions |
 | Storage expansion | Yes |
-| TLS | Enabled by default; provider-managed CA or BYO Secret/Issuer |
+| TLS | Required by default; provider-managed CA, your cert-manager issuer (bring your own CA) or certificate Secret |
 | Prometheus metrics | Enterprise, activated by a monitoring destination or `spec.monitoring.sources.metrics.policy: Always` (rejected on Community) |
 | On-demand and scheduled backups | Enterprise, S3-compatible BackupStorage |
 | Restore / initial data-source seed | Yes; point-in-time recovery is not exposed |
@@ -219,6 +219,113 @@ The UI takes CPU in cores, fractions included (`0.5`), and memory and disk in Gi
 them as Kubernetes quantity strings; a value it did not change keeps its stored form (for
 example `2048Mi`). Disk size cannot be decreased.
 
+### TLS
+
+TLS is set instance-wide under `spec.parameters.tls`, in the shape every OpenEverest provider
+shares:
+
+```yaml
+spec:
+  parameters:
+    tls:
+      mode: requireTLS                 # requireTLS (default) | disabled
+      issuer:                          # a cert-manager issuer, or ...
+        name: company-ca
+        kind: ClusterIssuer            # Issuer (default) | ClusterIssuer
+      # certificateSecretName: graph-tls  # ... a Secret with tls.crt, tls.key and ca.crt
+      additionalNames:                 # DNS names clients use, besides the in-cluster ones
+        - graph.company.com
+```
+
+| Field | Neo4j operator |
+|---|---|
+| `mode: requireTLS` | `trust.enabled`; Bolt (`server.bolt.tls_level=REQUIRED`), HTTPS and, on a Cluster, member traffic use TLS |
+| `mode: disabled` | `trust.enabled: false`; Standalone only, for evaluation |
+| `issuer` | `trust.certManager.issuerRef` |
+| `certificateSecretName` | `trust.certificates.{bolt,https,cluster}` key and certificate references |
+| `additionalNames` | `trust.certManager.dnsNames` (Bolt and HTTPS certificates) |
+
+The certificates come from, in order of precedence:
+
+1. `certificateSecretName`: a Secret in the instance namespace with `tls.crt`, `tls.key` and
+   `ca.crt`, labelled `neo4j.com/mountable=true`. Its certificate must cover the client Service
+   (`<name>.<namespace>.svc.cluster.local`) and, on a Cluster, the member Services.
+2. `issuer`: a cert-manager `Issuer` or `ClusterIssuer` that writes its CA to `ca.crt`, as the CA
+   and Vault issuers do. Only the `cert-manager.io` group works: the Neo4j operator's
+   `issuerRef` has no group, so external issuers (AWS PCA, Google CAS) are rejected.
+3. Otherwise the provider creates a CA for the instance through cert-manager.
+
+Rules:
+
+- `preferTLS` is not offered: the Neo4j operator always sets `server.bolt.tls_level=REQUIRED`
+  once Bolt has a certificate.
+- TLS can be turned on later on a Standalone, never off. The certificate source can't change
+  while TLS is on.
+- `additionalNames` are DNS names (wildcards allowed, no IPs) and can't be combined with
+  `certificateSecretName`, whose certificate carries its own names. Changing them on a running
+  instance reissues the certificates and restarts the pods, so it waits for maintenance
+  approval: the Instance lists a `tls-names-…` action in `status.pendingMaintenance`; copy its
+  token to `spec.maintenance.approved`. The UI doesn't edit `additionalNames` yet.
+- The connection Secret's `ca.crt` is the CA of the Bolt certificate.
+
+#### Bring your own CA
+
+Give cert-manager your company CA and point the instance at it:
+
+```sh
+kubectl -n cert-manager create secret tls company-ca --cert=ca.crt --key=ca.key
+```
+
+```yaml
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: company-ca
+spec:
+  ca:
+    secretName: company-ca
+---
+apiVersion: core.openeverest.io/v1alpha1
+kind: Instance
+metadata:
+  name: graph
+spec:
+  providerRef:
+    name: neo4j
+  topology:
+    type: standalone
+  version: "2026.10.2"
+  parameters:
+    tls:
+      issuer:
+        name: company-ca
+        kind: ClusterIssuer
+      additionalNames: [graph.company.com]
+  components:
+    engine:
+      replicas: 1
+      service:
+        serviceType: LoadBalancer
+      storage:
+        size: 10Gi
+```
+
+Point `graph.company.com` at the LoadBalancer address; clients that trust the company CA connect
+with full verification (`neo4j+s://graph.company.com:7687`).
+
+#### Migrating from provider 0.x TLS settings
+
+`mode: enabled` is replaced by `requireTLS` (the same behaviour). `issuer` and
+`certificateSecretName` keep their meaning. An Instance that still sets `mode: enabled` goes
+`ValidationFailed` after the upgrade; its Neo4j keeps running unchanged until you migrate it:
+
+```sh
+kubectl patch instance <name> -n <namespace> --type=merge \
+  -p '{"spec":{"parameters":{"tls":{"mode":"requireTLS"}}}}'
+```
+
+Instances that never set `mode` are unaffected.
+
 ## Backup parameters
 
 `parameters` on a `Backup`, or on a schedule in `spec.backup.storages[].schedules[]`:
@@ -289,7 +396,7 @@ endpoints select pods by component.
 
 Once the Instance is available or converged, the provider writes connection details to the
 Secret referenced by `Instance.status.connectionSecretRef`. Its `ca.crt` entry is the CA for
-the generated or supplied TLS certificate.
+the Bolt certificate, whichever source issued it.
 
 See [examples/](examples/) and the source-of-truth definitions in [definition/](definition/).
 
@@ -323,6 +430,7 @@ make deploy-cert-manager
 make deploy-provider-e2e
 make test-e2e-cluster                 # every suite, or one of:
 make test-e2e-cluster-standalone      # default TLS, version upgrade, LoadBalancer
+make test-e2e-cluster-tls             # issuer, additionalNames maintenance, TLS rules
 make test-e2e-cluster-backup-restore  # backup, in-place restore, seeding a new Instance
 make test-e2e-cluster-cluster         # three primaries, adding a read pool
 ```

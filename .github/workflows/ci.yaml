@@ -133,6 +133,15 @@ jobs:
       suite: e2e-standalone
     secrets: inherit
 
+  test-e2e-cluster-tls:
+    name: E2E Cluster / TLS
+    needs: [lint, build, verify]
+    uses: ./.github/workflows/e2e-cluster-test.yaml
+    with:
+      make_target: test-e2e-cluster-tls
+      suite: e2e-tls
+    secrets: inherit
+
   test-e2e-cluster-backup-restore:
     name: E2E Cluster / backup and restore
     needs: [lint, build, verify]

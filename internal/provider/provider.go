@@ -67,6 +67,9 @@ func (p *Provider) Sync(c *controller.Context) error {
 	if err != nil {
 		return err
 	}
+	if err := approveAdditionalNames(c, neo4j); err != nil {
+		return err
+	}
 	if err := c.Apply(neo4j); err != nil {
 		return fmt.Errorf("apply Neo4j: %w", err)
 	}
@@ -159,7 +162,7 @@ func connectionDetails(c *controller.Context, neo4j *neo4jv1.Neo4j) (controller.
 	}
 	if tls, err := tlsParameters(c); err != nil {
 		return controller.ConnectionDetails{}, err
-	} else if tls.Mode == "enabled" {
+	} else if tlsEnabled(tls) {
 		name := tlsSecretName(c, tls, "bolt")
 		cert := &corev1.Secret{}
 		if err := c.Get(cert, name); err != nil && !apierrors.IsNotFound(err) {
