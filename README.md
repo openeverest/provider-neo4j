@@ -239,6 +239,31 @@ The UI takes CPU in cores, fractions included (`0.5`), and memory and disk in Gi
 them as Kubernetes quantity strings; a value it did not change keeps its stored form (for
 example `2048Mi`). Disk size cannot be decreased.
 
+### Credentials
+
+Without `spec.userSecretRef`, the Neo4j operator generates the password of user `neo4j`. To
+choose it, reference a Secret with `NEO4J_AUTH` set to `neo4j/<password>`:
+
+```bash
+kubectl create secret generic graph-user --from-literal=NEO4J_AUTH='neo4j/a-strong-password'
+kubectl label secret graph-user openeverest.io/provider=neo4j openeverest.io/definition=user
+```
+
+```yaml
+spec:
+  userSecretRef:
+    name: graph-user
+```
+
+To change the password, update the Secret. Once Neo4j runs, the provider sets the new password
+in Neo4j (`ALTER CURRENT USER SET PASSWORD`). Until it succeeds, the Instance is not Ready and
+the connection Secret keeps the old password, so clients keep working. If Neo4j refuses the
+password, for example because it is shorter than 8 characters, the Instance reports the error.
+
+The Neo4j image reads `NEO4J_AUTH` on every start and only sets a password for user `neo4j`,
+so the user cannot change, and the password must not contain `/`, start with `-` or be
+`neo4j`.
+
 ### TLS
 
 TLS is set instance-wide under `spec.parameters.tls`, in the shape every OpenEverest provider
@@ -455,6 +480,7 @@ make test-e2e-cluster-tls             # issuer, additionalNames maintenance, TLS
 make test-e2e-cluster-backup-restore  # backup, in-place restore, seeding a new Instance
 make test-e2e-cluster-cluster         # three primaries, adding a read pool
 make test-e2e-cluster-upgrade         # provider upgrade waits for maintenance approval
+make test-e2e-cluster-credentials     # changing the password in the user Secret
 ```
 
 The backup and cluster suites run Neo4j Enterprise under its evaluation license

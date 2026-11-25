@@ -5,6 +5,7 @@ package user
 
 // UserSecretData is Neo4j's conventional username/password value.
 type UserSecretData struct {
-	// NEO4JAuth contains "username/password", normally "neo4j/<password>".
+	// NEO4JAuth contains "neo4j/<password>". A changed password is set in
+	// Neo4j once it runs.
 	NEO4JAuth string `json:"NEO4J_AUTH,omitempty"`
 }

@@ -263,11 +263,28 @@ func validateUserSecret(c *controller.Context) (field.ErrorList, error) {
 	if err := controller.ValidateSecretSchema(secret, spec); err != nil {
 		return field.ErrorList{field.Invalid(path, ref.Name, err.Error())}, nil
 	}
-	auth := string(secret.Data["NEO4J_AUTH"])
-	user, password, ok := strings.Cut(auth, "/")
-	if !ok || user == "" || password == "" {
-		return field.ErrorList{field.Invalid(path, ref.Name,
-			"NEO4J_AUTH must contain a non-empty username/password pair")}, nil
+	if msg := invalidAuth(string(secret.Data[authKey])); msg != "" {
+		return field.ErrorList{field.Invalid(path, ref.Name, msg)}, nil
 	}
 	return nil, nil
+}
+
+// invalidAuth says why the Neo4j image cannot start with a NEO4J_AUTH value,
+// which it reads on every start. The provider sets a changed password with
+// the same user, so the user cannot change either.
+func invalidAuth(auth string) string {
+	user, password, ok := strings.Cut(auth, "/")
+	switch {
+	case !ok || user == "" || password == "":
+		return authKey + " must contain a non-empty username/password pair"
+	case user != authUser:
+		return fmt.Sprintf("%s must name user %q, the only user the Neo4j image sets a password for", authKey, authUser)
+	case strings.Contains(password, "/"):
+		return "the password in " + authKey + " must not contain \"/\""
+	case strings.HasPrefix(password, "-"):
+		return "the password in " + authKey + " must not start with \"-\""
+	case password == authUser:
+		return "the password in " + authKey + " must not be \"neo4j\""
+	}
+	return ""
 }
