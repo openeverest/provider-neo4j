@@ -1,0 +1,38 @@
+apiVersion: core.openeverest.io/v1alpha1
+kind: Instance
+metadata:
+  name: graph
+status:
+  (pendingMaintenance == null): true
+  (conditions[?type == 'Ready'].status | [0]): "True"
+---
+apiVersion: neo4j.com/v1
+kind: Neo4j
+metadata:
+  name: graph
+spec:
+  scheduling:
+    affinity:
+      podAntiAffinity: soft
+status:
+  serverSummary:
+    servers: 3
+    ready: 3
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: graph-primary
+spec:
+  template:
+    spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+status:
+  replicas: 3
+  readyReplicas: 3
+  updatedReplicas: 3
+  (currentRevision == updateRevision): true

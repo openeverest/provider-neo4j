@@ -7,7 +7,6 @@ import (
 
 	neo4jv1 "github.com/neo4j/neo4j-kubernetes-operator/src/api/v1"
 	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/util/intstr"
 
 	corev1alpha1 "github.com/openeverest/openeverest/v2/api/core/v1alpha1"
@@ -136,11 +135,10 @@ func buildNeo4j(c *controller.Context) (*neo4jv1.Neo4j, error) {
 	}
 	if mode == neo4jv1.TopologyModeCluster {
 		spec.PodDisruptionBudget = buildPodDisruptionBudget(topology)
-		spread, err := spreadsMembersByDefault(c)
-		if err != nil {
-			return nil, err
-		}
-		if spread && (engine.SchedulingPolicy == nil || engine.SchedulingPolicy.Affinity == nil) {
+		// The preference is part of the pod template. On a cluster created
+		// without it, adding it restarts every member, so it waits for the
+		// provider upgrade's maintenance approval (holdProviderUpgrade).
+		if engine.SchedulingPolicy == nil || engine.SchedulingPolicy.Affinity == nil {
 			if spec.Scheduling == nil {
 				spec.Scheduling = &neo4jv1.SchedulingSpec{}
 			}
@@ -295,23 +293,6 @@ func memberCount(topology neo4jv1.TopologySpec) int32 {
 		}
 	}
 	return members
-}
-
-// spreadsMembersByDefault tells whether a cluster without an affinity of its
-// own prefers a node per member. The preference is part of the pod template,
-// so adding it to a running cluster would restart every member: only a new
-// cluster, or one that already has it, gets it.
-func spreadsMembersByDefault(c *controller.Context) (bool, error) {
-	live := &neo4jv1.Neo4j{}
-	if err := c.Get(live, c.Name()); err != nil {
-		if apierrors.IsNotFound(err) {
-			return true, nil
-		}
-		return false, fmt.Errorf("get Neo4j: %w", err)
-	}
-	scheduling := live.Spec.Scheduling
-	return scheduling != nil && scheduling.Affinity != nil &&
-		scheduling.Affinity.PodAntiAffinity == antiAffinitySoft, nil
 }
 
 func buildScheduling(engine corev1alpha1.ComponentSpec) *neo4jv1.SchedulingSpec {

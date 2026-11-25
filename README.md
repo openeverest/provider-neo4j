@@ -200,8 +200,9 @@ A Cluster gets two defaults:
 - a preference to run each member of a pool on its own node (soft pod anti-affinity).
   `spec.components.engine.schedulingPolicy.affinity` replaces it.
 
-The preference is part of the pod template. A cluster created by provider 0.1.x does not
-get it, because adding it would restart every member.
+The preference is part of the pod template, so adding it restarts every member. A cluster
+created by provider 0.1.0 gets it with the `upgrade-to-<release>` maintenance action (see
+[Upgrading the provider](#upgrading-the-provider)) and keeps running without it until you approve.
 
 ### External access
 

@@ -162,4 +162,31 @@ func TestProviderUpgradeWaitsForMaintenance(t *testing.T) {
 		require.NotNil(t, got.Spec.Config.JVM)
 		assert.Equal(t, []string{"-XX:+UseG1GC"}, got.Spec.Config.JVM.AdditionalArguments)
 	})
+	// Release 0.1.0 created clusters without the anti-affinity and without
+	// the release annotation.
+	t.Run("0.1.x cluster spreads its members once approved", func(t *testing.T) {
+		t.Parallel()
+		in := tlsInstance(t, common.TopologyCluster, map[string]any{"issuer": map[string]any{"name": "company-ca"}})
+		cl := newClient(t, in)
+		c := controller.NewContext(context.Background(), cl, in, common.ProviderName)
+		old, err := buildNeo4j(c)
+		require.NoError(t, err)
+		old.Spec.Scheduling = nil
+		require.NoError(t, c.Apply(old))
+
+		c = sync(t, cl, in)
+		pending := c.GetPendingMaintenance()
+		require.Len(t, pending, 1)
+		assert.Equal(t, token, pending[0].ApprovalToken)
+		assert.Equal(t, controller.MaintenanceRollingRestart, pending[0].Severity)
+		assert.Nil(t, live(t, cl).Spec.Scheduling)
+
+		in.Spec.Maintenance = &corev1alpha1.MaintenanceSpec{Approved: token}
+		c = sync(t, cl, in)
+		assert.Empty(t, c.GetPendingMaintenance())
+		got := live(t, cl).Spec.Scheduling
+		require.NotNil(t, got)
+		require.NotNil(t, got.Affinity)
+		assert.Equal(t, antiAffinitySoft, got.Affinity.PodAntiAffinity)
+	})
 }
