@@ -80,6 +80,14 @@ All settings live in `dev/.env` (see `dev/.env.example`). Common options:
 > is built for. Don't use a range: SemVer ranks `2.0.0-dev.N` above
 > `2.0.0-alpha.1`, so a range picks a developer preview, and Helm's default
 > resolution skips pre-releases and installs v1.
+>
+> While `go.mod` requires a commit of core `main` whose contract has changed since
+> the last release, the chart's stamp is a development value, such as
+> `2.0.0-alpha.1.next`, and no released core serves this provider: the chart
+> refuses to install on one, and the provider would stay unready there. Run the
+> core from that commit instead (the pseudo-version of
+> `github.com/openeverest/openeverest/v2` in `go.mod` ends with it), as described
+> below.
 
 ## Developing the core and the provider together
 

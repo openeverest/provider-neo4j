@@ -42,6 +42,11 @@ Each row names the exact OpenEverest version: SemVer ranks `2.0.0-dev.N` above
 `2.0.0-alpha.1`, so a range would also claim the developer previews, whose Instance status
 this provider does not write.
 
+Each chart also names the OpenEverest it is built for, in the `openeverest.io/contract-version`
+annotation of its `Chart.yaml`, which `make generate` writes. A Helm install on an OpenEverest
+that does not serve that version fails, and a build applied any other way waits, unready,
+until OpenEverest serves it; see [Installation](#installation).
+
 ## Requirements
 
 - OpenEverest `2.0.0-alpha.1`
@@ -80,6 +85,27 @@ operator:
 An Instance in a namespace the operator does not watch gets no pods and no error. The upstream
 controller never watches its own namespace, so do not create Instances in the release
 namespace.
+
+With Helm or Flux, the install fails, before anything is applied, when the OpenEverest in the
+cluster does not serve the OpenEverest the chart is built for, and the error names the
+OpenEverest it needs. Argo CD, and any tool that applies pre-rendered manifests, renders the
+chart without reading the cluster, so that check passes there. Whichever tool applies it, a
+new build of the provider that the installed OpenEverest does not support stays running but
+unready until OpenEverest does, with a Warning Event on the `Provider` that says why
+(`kubectl describe provider neo4j`). Under the chart's default `RollingUpdate` strategy, the
+previous build, if any, keeps serving meanwhile.
+
+To install anyway, set `compatibility.acknowledge.coreVersion` to the OpenEverest version the
+cluster runs, which the error also names. The chart writes it on the `Provider`, its
+`BackupClass` and the presets as `openeverest.io/compatibility-acknowledged`, and the provider
+reads it on its `Provider` at startup, so it lets a held build start too. It holds on that
+release and on later ones that keep its contract, such as its patch releases, and expires with
+the first OpenEverest release that changes the contract, which is checked again.
+
+The chart sets no annotation for any tool itself: `openeverest.annotations` adds annotations
+to the `Provider`, its `BackupClass` and the presets, such as
+`argocd.argoproj.io/sync-wave: "-1"` to have Argo CD apply them before the provider's
+`Deployment` and the bundled operator.
 
 ## Presets
 
@@ -473,7 +499,9 @@ make test-e2e-cluster-credentials     # changing the password in the user Secret
 The backup and cluster suites run Neo4j Enterprise under its evaluation license
 (`licenseAcceptance: eval`).
 
-Run `make verify` before committing generated files. The pinned Neo4j operator is `v1.1.0`;
+Run `make verify` before committing generated files. It also fails when the chart is not
+stamped with the OpenEverest the provider is built against, which `make generate` writes from
+the core `go.mod` requires. The pinned Neo4j operator is `v1.1.0`;
 CRDs in `charts/provider-neo4j/crds/` are copied from that version by `make generate`.
 
 Dependabot proposes new operator releases by bumping the subchart in `Chart.yaml`. It cannot

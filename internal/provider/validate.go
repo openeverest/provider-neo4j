@@ -15,6 +15,7 @@ import (
 
 	backupv1alpha1 "github.com/openeverest/openeverest/v2/api/backup/v1alpha1"
 	corev1alpha1 "github.com/openeverest/openeverest/v2/api/core/v1alpha1"
+	"github.com/openeverest/openeverest/v2/contract/definitions"
 	"github.com/openeverest/openeverest/v2/provider-runtime/controller"
 
 	"github.com/openeverest/provider-neo4j/definition"
@@ -282,7 +283,7 @@ func validateUserSecret(c *controller.Context) (field.ErrorList, error) {
 	if err != nil {
 		return nil, fmt.Errorf("get Provider spec: %w", err)
 	}
-	if err := controller.ValidateSecretSchema(secret, spec); err != nil {
+	if err := definitions.ValidateSecretSchema(secret, spec); err != nil {
 		return field.ErrorList{field.Invalid(path, ref.Name, err.Error())}, nil
 	}
 	if msg := invalidAuth(string(secret.Data[authKey])); msg != "" {

@@ -13,6 +13,13 @@ package provider
 // +kubebuilder:rbac:groups=apps,resources=statefulsets,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch;patch
 
+// A new build stays unready until the installed OpenEverest supports it: the
+// runtime reads the versions OpenEverest supports on the Provider CRD, then
+// records the version it was built for on its Provider's status. Keep
+// resourceNames in sync with common.ProviderName.
+// +kubebuilder:rbac:groups=apiextensions.k8s.io,resources=customresourcedefinitions,resourceNames=providers.core.openeverest.io,verbs=get
+// +kubebuilder:rbac:groups=core.openeverest.io,resources=providers/status,resourceNames=neo4j,verbs=patch
+
 // Neo4j operator resources.
 // +kubebuilder:rbac:groups=neo4j.com,resources=neo4js,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=neo4j.com,resources=neo4js/status,verbs=get
