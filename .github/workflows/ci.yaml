@@ -159,3 +159,12 @@ jobs:
       make_target: test-e2e-cluster-cluster
       suite: e2e-cluster
     secrets: inherit
+
+  test-e2e-cluster-credentials:
+    name: E2E Cluster / credentials
+    needs: [lint, build, verify]
+    uses: ./.github/workflows/e2e-cluster-test.yaml
+    with:
+      make_target: test-e2e-cluster-credentials
+      suite: e2e-credentials
+    secrets: inherit

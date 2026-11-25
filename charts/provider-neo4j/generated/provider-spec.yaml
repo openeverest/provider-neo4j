@@ -209,21 +209,23 @@ spec:
           description: UserSecretData is Neo4j's conventional username/password value.
           properties:
             NEO4J_AUTH:
-              description: NEO4JAuth contains "username/password", normally "neo4j/<password>".
+              description: |-
+                NEO4JAuth contains "neo4j/<password>". A changed password is set in
+                Neo4j once it runs.
               type: string
           type: object
       uiSchema:
         components:
           auth:
             fieldParams:
-              helperText: 'Format: username/password (usually neo4j/password)'
+              helperText: 'Format: neo4j/password'
               label: NEO4J_AUTH
               type: password
             path: NEO4J_AUTH
             uiType: text
         componentsOrder:
           - auth
-        description: Initial Neo4j authentication credentials.
+        description: Neo4j authentication credentials. A changed password is set in Neo4j.
         label: Neo4j credentials
   topologies:
     cluster:
