@@ -1,0 +1,22 @@
+apiVersion: core.openeverest.io/v1alpha1
+kind: Instance
+metadata:
+  name: graph-tls
+status:
+  phase: Provisioned
+  (conditions[?type == 'Ready'].status | [0]): "True"
+---
+apiVersion: neo4j.com/v1
+kind: Neo4j
+metadata:
+  name: graph-tls
+spec:
+  trust:
+    enabled: true
+    certManager:
+      enabled: true
+      issuerRef:
+        name: company-ca
+        kind: Issuer
+      dnsNames:
+        - graph.example.test

@@ -174,6 +174,10 @@ test-e2e-cluster: ## Run all e2e-cluster tests (needs a running Neo4j operator a
 test-e2e-cluster-standalone: ## Run the standalone e2e-cluster test (TLS, version upgrade, LoadBalancer).
 	. ./test/vars.sh && chainsaw test --config ./test/e2e-cluster/.chainsaw.yaml ./test/e2e-cluster/standalone
 
+.PHONY: test-e2e-cluster-tls
+test-e2e-cluster-tls: ## Run the TLS e2e-cluster test (bring your own CA, additionalNames, TLS rules).
+	. ./test/vars.sh && chainsaw test --config ./test/e2e-cluster/.chainsaw.yaml ./test/e2e-cluster/tls
+
 .PHONY: test-e2e-cluster-backup-restore
 test-e2e-cluster-backup-restore: ## Run the backup, restore and data-source e2e-cluster test.
 	. ./test/vars.sh && chainsaw test --config ./test/e2e-cluster/.chainsaw.yaml ./test/e2e-cluster/backup-restore

@@ -106,6 +106,14 @@
     - update
     - watch
 - apiGroups:
+    - cert-manager.io
+  resources:
+    - clusterissuers
+  verbs:
+    - get
+    - list
+    - watch
+- apiGroups:
     - coordination.k8s.io
   resources:
     - leases

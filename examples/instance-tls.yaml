@@ -1,0 +1,29 @@
+# Bring your own CA: a cert-manager ClusterIssuer signs the certificates, and
+# clients reach the instance as graph.company.com with full verification.
+apiVersion: core.openeverest.io/v1alpha1
+kind: Instance
+metadata:
+  name: graph
+spec:
+  providerRef:
+    name: neo4j
+  topology:
+    type: standalone
+  version: "2026.10.2"
+  parameters:
+    tls:
+      mode: requireTLS
+      issuer:
+        name: company-ca
+        kind: ClusterIssuer
+      additionalNames:
+        - graph.company.com
+  components:
+    engine:
+      replicas: 1
+      resources:
+        limits:
+          cpu: "1"
+          memory: 2Gi
+      storage:
+        size: 10Gi

@@ -239,36 +239,7 @@ func validateTransitions(in, old *corev1alpha1.Instance, params definition.Param
 	}
 	oldParams := definition.Parameters{}
 	_ = decodeRaw(old.Spec.Parameters, &oldParams)
-	oldTLS := definition.TLSParameters{}
-	if oldParams.TLS != nil {
-		oldTLS = *oldParams.TLS
-	}
-	newTLS := definition.TLSParameters{}
-	if params.TLS != nil {
-		newTLS = *params.TLS
-	}
-	if oldTLS.Mode == "" {
-		oldTLS.Mode = definition.TLSModeEnabled
-	}
-	if newTLS.Mode == "" {
-		newTLS.Mode = definition.TLSModeEnabled
-	}
-	if oldTLS.Mode != newTLS.Mode {
-		errs = append(errs, field.Forbidden(field.NewPath("spec", "parameters", "tls", "mode"),
-			"TLS cannot be enabled or disabled on an existing instance"))
-	}
-	oldSource := oldTLS.CertificateSecretName
-	newSource := newTLS.CertificateSecretName
-	if oldTLS.Issuer != nil {
-		oldSource = string(oldTLS.Issuer.Kind) + "/" + oldTLS.Issuer.Name
-	}
-	if newTLS.Issuer != nil {
-		newSource = string(newTLS.Issuer.Kind) + "/" + newTLS.Issuer.Name
-	}
-	if oldSource != newSource {
-		errs = append(errs, field.Forbidden(field.NewPath("spec", "parameters", "tls"),
-			"the certificate source cannot change on an existing instance"))
-	}
+	errs = append(errs, validateTLSTransition(oldParams, params)...)
 	return errs
 }
 

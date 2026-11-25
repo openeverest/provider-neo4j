@@ -1,0 +1,26 @@
+apiVersion: core.openeverest.io/v1alpha1
+kind: Instance
+metadata:
+  name: graph-tls
+spec:
+  providerRef:
+    name: neo4j
+  topology:
+    type: standalone
+  version: "2026.07.1"
+  parameters:
+    tls:
+      mode: requireTLS
+      issuer:
+        name: company-ca
+      additionalNames:
+        - graph.example.test
+  components:
+    engine:
+      replicas: 1
+      resources:
+        limits:
+          cpu: "1"
+          memory: 2Gi
+      storage:
+        size: 2Gi

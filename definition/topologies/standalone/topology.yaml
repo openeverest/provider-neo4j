@@ -80,6 +80,73 @@ ui:
           fieldParams: {label: Storage class}
           dataSource: {provider: storageClasses}
       componentsOrder: [cpu, memory, disk, storageClass]
+    tls:
+      label: TLS
+      description: Encrypt client connections and choose the server certificate.
+      components:
+        mode:
+          uiType: select
+          path: spec.parameters.tls.mode
+          fieldParams:
+            label: TLS mode
+            helperText: Required encrypts Bolt and HTTPS and rejects clients without TLS. Disabled is for evaluation only; TLS can be turned on later but not off.
+            defaultValue: requireTLS
+            options:
+              - {label: "Required: clients must use TLS", value: requireTLS}
+              - {label: Disabled, value: disabled}
+        certificates:
+          uiType: group
+          groupType: bordered
+          label: Certificates
+          description: Leave empty to have the provider create a CA for the instance through cert-manager. Clients verify the server with the CA certificate the connection secret holds as ca.crt. Can't be changed while TLS is on. Additional DNS names are set in YAML (spec.parameters.tls.additionalNames).
+          components:
+            issuer:
+              uiType: group
+              groupType: line
+              components:
+                issuerName:
+                  uiType: text
+                  path: spec.parameters.tls.issuer.name
+                  fieldParams:
+                    label: cert-manager issuer
+                    helperText: Issuer that signs the certificates. It must write its CA certificate (ca.crt), as CA and Vault issuers do.
+                    modes:
+                      edit:
+                        disabled: true
+                  validation:
+                    celExpressions:
+                      - celExpr: "!has(spec.parameters) || !has(spec.parameters.tls) || !has(spec.parameters.tls.issuer) || !has(spec.parameters.tls.issuer.name) || spec.parameters.tls.issuer.name == '' || !has(spec.parameters.tls.certificateSecretName) || spec.parameters.tls.certificateSecretName == ''"
+                        message: Use either an issuer or a certificate secret, not both
+                      - celExpr: "!has(spec.parameters) || !has(spec.parameters.tls) || !has(spec.parameters.tls.issuer) || !has(spec.parameters.tls.issuer.kind) || spec.parameters.tls.issuer.kind == '' || (has(spec.parameters.tls.issuer.name) && spec.parameters.tls.issuer.name != '')"
+                        message: Name the issuer
+                issuerKind:
+                  uiType: select
+                  path: spec.parameters.tls.issuer.kind
+                  fieldParams:
+                    label: Issuer kind
+                    helperText: Issuer when not set
+                    options:
+                      - {label: Issuer, value: Issuer}
+                      - {label: ClusterIssuer, value: ClusterIssuer}
+                    modes:
+                      edit:
+                        disabled: true
+              componentsOrder: [issuerName, issuerKind]
+            certificateSecretName:
+              uiType: text
+              path: spec.parameters.tls.certificateSecretName
+              fieldParams:
+                label: Certificate secret
+                helperText: Secret labelled neo4j.com/mountable=true with the server certificate (tls.crt), its key (tls.key) and the CA certificate (ca.crt), valid for the instance's Service and member names.
+                modes:
+                  edit:
+                    disabled: true
+              validation:
+                regex:
+                  pattern: "^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"
+                  message: Must be a valid Kubernetes object name (lowercase letters, digits, '-' and '.')
+          componentsOrder: [issuer, certificateSecretName]
+      componentsOrder: [mode, certificates]
     advanced:
       label: Advanced configuration
       components:
@@ -94,4 +161,4 @@ ui:
               - {label: LoadBalancer, value: LoadBalancer}
               - {label: NodePort, value: NodePort}
       componentsOrder: [externalAccess]
-  sectionsOrder: [databaseVersion, resources, advanced]
+  sectionsOrder: [databaseVersion, resources, tls, advanced]

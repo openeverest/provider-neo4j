@@ -137,40 +137,65 @@ spec:
             - eval
           type: string
         tls:
-          description: TLS configures client and cluster encryption. TLS is enabled by default.
+          description: |-
+            TLS configures client and cluster encryption. TLS is required by
+            default.
           properties:
+            additionalNames:
+              description: |-
+                AdditionalNames are DNS names the Bolt and HTTPS certificates are
+                valid for besides the in-cluster names, such as an external name
+                clients connect to. Cannot be combined with certificateSecretName,
+                whose certificate carries its own names. Changing them on a running
+                instance reissues the certificates and restarts the pods, so it waits
+                for maintenance approval.
+              items:
+                type: string
+              type: array
             certificateSecretName:
               description: |-
-                CertificateSecretName optionally names a BYO TLS Secret. It must contain
-                tls.crt, tls.key and ca.crt and is used for Bolt, HTTPS and cluster TLS.
+                CertificateSecretName names a Secret in the instance namespace with
+                the server certificate (tls.crt), its private key (tls.key) and the CA
+                certificate it is verified with (ca.crt), labelled
+                neo4j.com/mountable=true. It is used for Bolt, HTTPS and cluster
+                traffic, so it must be valid for the instance's Service and member
+                names. Does not need cert-manager. Cannot be combined with issuer or
+                additionalNames.
               type: string
             issuer:
               description: |-
-                Issuer optionally selects an existing cert-manager Issuer. When omitted,
-                the provider creates a self-signed Issuer for the Instance.
+                Issuer is the cert-manager issuer that signs the certificates, instead
+                of the CA the provider creates for the instance. It must write its CA
+                certificate to ca.crt, as the CA and Vault issuers do.
               properties:
+                group:
+                  description: |-
+                    Group is the API group of the issuer. Only cert-manager.io is
+                    supported: the Neo4j operator does not pass a group to cert-manager,
+                    so external issuers such as AWS PCA can't be used.
+                  type: string
                 kind:
                   default: Issuer
-                  description: IssuerKind selects a cert-manager issuer scope.
+                  description: Kind of the issuer.
                   enum:
                     - Issuer
                     - ClusterIssuer
                   type: string
                 name:
-                  description: Name is the issuer name.
-                  minLength: 1
+                  description: Name of the issuer. Without a name the issuer is ignored.
                   type: string
-              required:
-                - name
               type: object
             mode:
-              default: enabled
+              default: requireTLS
               description: |-
-                Mode enables TLS for client Bolt/HTTPS connections. Enabled also enables
-                verified Bolt for operator administration of clusters. Disabled is
-                intended only for evaluation and cannot be used with Cluster.
+                Mode is requireTLS or disabled. requireTLS encrypts Bolt, HTTPS and,
+                on the cluster topology, the traffic between members, and rejects
+                clients without TLS. disabled is for evaluation only: the cluster
+                topology needs TLS, and TLS can be turned on later but never off.
+                preferTLS is not offered: the Neo4j operator always requires TLS on
+                Bolt once Bolt has a certificate.
               enum:
-                - enabled
+                - requireTLS
                 - disabled
               type: string
           type: object
@@ -425,10 +450,75 @@ spec:
             - read
           description: Analytics and read servers hold copies of the databases you place on them. The default neo4j database stays on the primaries until you run ALTER DATABASE neo4j SET TOPOLOGY <primaries> PRIMARIES <secondaries> SECONDARIES.
           label: Secondary pools
+        tls:
+          components:
+            certificates:
+              components:
+                certificateSecretName:
+                  fieldParams:
+                    helperText: Secret labelled neo4j.com/mountable=true with the server certificate (tls.crt), its key (tls.key) and the CA certificate (ca.crt), valid for the instance's Service and member names.
+                    label: Certificate secret
+                    modes:
+                      edit:
+                        disabled: true
+                  path: spec.parameters.tls.certificateSecretName
+                  uiType: text
+                  validation:
+                    regex:
+                      message: Must be a valid Kubernetes object name (lowercase letters, digits, '-' and '.')
+                      pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
+                issuer:
+                  components:
+                    issuerKind:
+                      fieldParams:
+                        helperText: Issuer when not set
+                        label: Issuer kind
+                        modes:
+                          edit:
+                            disabled: true
+                        options:
+                          - label: Issuer
+                            value: Issuer
+                          - label: ClusterIssuer
+                            value: ClusterIssuer
+                      path: spec.parameters.tls.issuer.kind
+                      uiType: select
+                    issuerName:
+                      fieldParams:
+                        helperText: Issuer that signs the certificates. It must write its CA certificate (ca.crt), as CA and Vault issuers do.
+                        label: cert-manager issuer
+                        modes:
+                          edit:
+                            disabled: true
+                      path: spec.parameters.tls.issuer.name
+                      uiType: text
+                      validation:
+                        celExpressions:
+                          - celExpr: '!has(spec.parameters) || !has(spec.parameters.tls) || !has(spec.parameters.tls.issuer) || !has(spec.parameters.tls.issuer.name) || spec.parameters.tls.issuer.name == '''' || !has(spec.parameters.tls.certificateSecretName) || spec.parameters.tls.certificateSecretName == '''''
+                            message: Use either an issuer or a certificate secret, not both
+                          - celExpr: '!has(spec.parameters) || !has(spec.parameters.tls) || !has(spec.parameters.tls.issuer) || !has(spec.parameters.tls.issuer.kind) || spec.parameters.tls.issuer.kind == '''' || (has(spec.parameters.tls.issuer.name) && spec.parameters.tls.issuer.name != '''')'
+                            message: Name the issuer
+                  componentsOrder:
+                    - issuerName
+                    - issuerKind
+                  groupType: line
+                  uiType: group
+              componentsOrder:
+                - issuer
+                - certificateSecretName
+              description: Leave empty to have the provider create a CA for the instance through cert-manager. Clients verify the server with the CA certificate the connection secret holds as ca.crt. Can't be changed while TLS is on. Additional DNS names are set in YAML (spec.parameters.tls.additionalNames).
+              groupType: bordered
+              label: Certificates
+              uiType: group
+          componentsOrder:
+            - certificates
+          description: TLS is required on the cluster topology. Choose the certificates for client and member traffic.
+          label: TLS
       sectionsOrder:
         - databaseVersion
         - resources
         - secondaryPools
+        - tls
         - advanced
     standalone:
       sections:
@@ -543,9 +633,87 @@ spec:
             - disk
             - storageClass
           label: Resources
+        tls:
+          components:
+            certificates:
+              components:
+                certificateSecretName:
+                  fieldParams:
+                    helperText: Secret labelled neo4j.com/mountable=true with the server certificate (tls.crt), its key (tls.key) and the CA certificate (ca.crt), valid for the instance's Service and member names.
+                    label: Certificate secret
+                    modes:
+                      edit:
+                        disabled: true
+                  path: spec.parameters.tls.certificateSecretName
+                  uiType: text
+                  validation:
+                    regex:
+                      message: Must be a valid Kubernetes object name (lowercase letters, digits, '-' and '.')
+                      pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
+                issuer:
+                  components:
+                    issuerKind:
+                      fieldParams:
+                        helperText: Issuer when not set
+                        label: Issuer kind
+                        modes:
+                          edit:
+                            disabled: true
+                        options:
+                          - label: Issuer
+                            value: Issuer
+                          - label: ClusterIssuer
+                            value: ClusterIssuer
+                      path: spec.parameters.tls.issuer.kind
+                      uiType: select
+                    issuerName:
+                      fieldParams:
+                        helperText: Issuer that signs the certificates. It must write its CA certificate (ca.crt), as CA and Vault issuers do.
+                        label: cert-manager issuer
+                        modes:
+                          edit:
+                            disabled: true
+                      path: spec.parameters.tls.issuer.name
+                      uiType: text
+                      validation:
+                        celExpressions:
+                          - celExpr: '!has(spec.parameters) || !has(spec.parameters.tls) || !has(spec.parameters.tls.issuer) || !has(spec.parameters.tls.issuer.name) || spec.parameters.tls.issuer.name == '''' || !has(spec.parameters.tls.certificateSecretName) || spec.parameters.tls.certificateSecretName == '''''
+                            message: Use either an issuer or a certificate secret, not both
+                          - celExpr: '!has(spec.parameters) || !has(spec.parameters.tls) || !has(spec.parameters.tls.issuer) || !has(spec.parameters.tls.issuer.kind) || spec.parameters.tls.issuer.kind == '''' || (has(spec.parameters.tls.issuer.name) && spec.parameters.tls.issuer.name != '''')'
+                            message: Name the issuer
+                  componentsOrder:
+                    - issuerName
+                    - issuerKind
+                  groupType: line
+                  uiType: group
+              componentsOrder:
+                - issuer
+                - certificateSecretName
+              description: Leave empty to have the provider create a CA for the instance through cert-manager. Clients verify the server with the CA certificate the connection secret holds as ca.crt. Can't be changed while TLS is on. Additional DNS names are set in YAML (spec.parameters.tls.additionalNames).
+              groupType: bordered
+              label: Certificates
+              uiType: group
+            mode:
+              fieldParams:
+                defaultValue: requireTLS
+                helperText: Required encrypts Bolt and HTTPS and rejects clients without TLS. Disabled is for evaluation only; TLS can be turned on later but not off.
+                label: TLS mode
+                options:
+                  - label: 'Required: clients must use TLS'
+                    value: requireTLS
+                  - label: Disabled
+                    value: disabled
+              path: spec.parameters.tls.mode
+              uiType: select
+          componentsOrder:
+            - mode
+            - certificates
+          description: Encrypt client connections and choose the server certificate.
+          label: TLS
       sectionsOrder:
         - databaseVersion
         - resources
+        - tls
         - advanced
   versions:
     - components:

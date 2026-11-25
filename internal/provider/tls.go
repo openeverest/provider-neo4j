@@ -1,14 +1,20 @@
 package provider
 
 import (
+	"cmp"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"net"
 	"slices"
+	"strings"
 
 	cmapi "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
 	cmmeta "github.com/cert-manager/cert-manager/pkg/apis/meta/v1"
 	neo4jv1 "github.com/neo4j/neo4j-kubernetes-operator/src/api/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -19,24 +25,48 @@ import (
 	"github.com/openeverest/provider-neo4j/internal/common"
 )
 
-const internalIssuerSuffix = "-selfsigned"
+const (
+	internalIssuerSuffix = "-selfsigned"
+	certManagerGroup     = "cert-manager.io"
+	// tlsNamesTokenPrefix prefixes the maintenance token of an
+	// additionalNames change; the rest is a hash of the names.
+	tlsNamesTokenPrefix = "tls-names-"
+)
+
+var tlsPath = field.NewPath("spec", "parameters", "tls")
 
 func tlsParameters(c *controller.Context) (definition.TLSParameters, error) {
 	params, err := instanceParameters(c)
 	if err != nil {
 		return definition.TLSParameters{}, err
 	}
+	return normalizeTLS(params), nil
+}
+
+// normalizeTLS applies the defaults: requireTLS, and an issuer of kind
+// Issuer. An issuer without a name, as the UI may leave behind, is ignored.
+func normalizeTLS(params definition.Parameters) definition.TLSParameters {
 	tls := definition.TLSParameters{}
 	if params.TLS != nil {
 		tls = *params.TLS
 	}
 	if tls.Mode == "" {
-		tls.Mode = definition.TLSModeEnabled
+		tls.Mode = definition.TLSModeRequire
 	}
-	if tls.Issuer != nil && tls.Issuer.Kind == "" {
-		tls.Issuer.Kind = definition.IssuerKindIssuer
+	if tls.Issuer != nil && tls.Issuer.Name == "" {
+		tls.Issuer = nil
 	}
-	return tls, nil
+	if tls.Issuer != nil {
+		issuer := *tls.Issuer
+		issuer.Kind = cmp.Or(issuer.Kind, definition.IssuerKindIssuer)
+		issuer.Group = cmp.Or(issuer.Group, certManagerGroup)
+		tls.Issuer = &issuer
+	}
+	return tls
+}
+
+func tlsEnabled(tls definition.TLSParameters) bool {
+	return tls.Mode != definition.TLSModeDisabled
 }
 
 func issuerRef(c *controller.Context, tls definition.TLSParameters) *neo4jv1.IssuerRef {
@@ -57,7 +87,7 @@ func ensureTLSIssuer(c *controller.Context) error {
 	if err != nil {
 		return err
 	}
-	if tls.Mode == definition.TLSModeDisabled || tls.CertificateSecretName != "" || tls.Issuer != nil {
+	if !tlsEnabled(tls) || tls.CertificateSecretName != "" || tls.Issuer != nil {
 		return nil
 	}
 	bootstrap := &cmapi.Issuer{
@@ -107,7 +137,7 @@ func buildTLS(c *controller.Context) (*neo4jv1.TrustSpec, error) {
 	if err != nil {
 		return nil, err
 	}
-	if tls.Mode == definition.TLSModeDisabled {
+	if !tlsEnabled(tls) {
 		out := &neo4jv1.TrustSpec{Enabled: false}
 		if c.Instance().GetTopologyType() == common.TopologyCluster {
 			out.InsecureAdminConnection = true
@@ -126,6 +156,7 @@ func buildTLS(c *controller.Context) (*neo4jv1.TrustSpec, error) {
 		trust.CertManager = &neo4jv1.CertManagerSpec{
 			Enabled:   true,
 			IssuerRef: issuerRef(c, tls),
+			DNSNames:  slices.Clone(tls.AdditionalNames),
 		}
 	}
 	if c.Instance().GetTopologyType() == common.TopologyCluster {
@@ -178,28 +209,142 @@ func tlsSecretName(c *controller.Context, tls definition.TLSParameters, policy s
 	return c.Name() + "-" + policy + "-tls"
 }
 
+// approveAdditionalNames keeps the additional names of the running Neo4j's
+// certificates until a change is approved: cert-manager reissues the Bolt and
+// HTTPS certificates for the new names and the operator restarts the pods to
+// serve them. A Neo4j that is created, or gets TLS now, starts or restarts
+// anyway, so its names apply without approval.
+func approveAdditionalNames(c *controller.Context, desired *neo4jv1.Neo4j) error {
+	if desired.Spec.Trust == nil || desired.Spec.Trust.CertManager == nil {
+		return nil
+	}
+	live := &neo4jv1.Neo4j{}
+	if err := c.Get(live, desired.Name); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil
+		}
+		return fmt.Errorf("get Neo4j: %w", err)
+	}
+	if live.Spec.Trust == nil || !live.Spec.Trust.Enabled || live.Spec.Trust.CertManager == nil {
+		return nil
+	}
+	current := live.Spec.Trust.CertManager.DNSNames
+	wanted := desired.Spec.Trust.CertManager.DNSNames
+	if slices.Equal(current, wanted) {
+		return nil
+	}
+	description := "Reissue the TLS certificates without additional names (rolling restart)"
+	if len(wanted) > 0 {
+		description = fmt.Sprintf("Reissue the TLS certificates for the additional names %s (rolling restart)",
+			strings.Join(wanted, ", "))
+	}
+	if !c.RequestMaintenance(additionalNamesToken(wanted), description, controller.MaintenanceRollingRestart) {
+		desired.Spec.Trust.CertManager.DNSNames = slices.Clone(current)
+	}
+	return nil
+}
+
+// additionalNamesToken identifies a change to names by the names it leads to.
+func additionalNamesToken(names []string) string {
+	sum := sha256.Sum256([]byte(strings.Join(names, ",")))
+	return tlsNamesTokenPrefix + hex.EncodeToString(sum[:])[:10]
+}
+
 func validateTLS(in *corev1alpha1.Instance, params definition.Parameters) field.ErrorList {
-	tls := definition.TLSParameters{}
-	if params.TLS != nil {
-		tls = *params.TLS
-	}
-	if tls.Mode == "" {
-		tls.Mode = definition.TLSModeEnabled
-	}
-	path := field.NewPath("spec", "parameters", "tls")
 	var errs field.ErrorList
-	if !slices.Contains([]definition.TLSMode{definition.TLSModeEnabled, definition.TLSModeDisabled}, tls.Mode) {
-		errs = append(errs, field.NotSupported(path.Child("mode"), tls.Mode, []definition.TLSMode{
-			definition.TLSModeEnabled, definition.TLSModeDisabled,
+	if params.TLS != nil && params.TLS.Issuer != nil && params.TLS.Issuer.Name == "" &&
+		(params.TLS.Issuer.Kind != "" || params.TLS.Issuer.Group != "") {
+		errs = append(errs, field.Required(tlsPath.Child("issuer", "name"), "name the issuer"))
+	}
+	tls := normalizeTLS(params)
+	switch tls.Mode {
+	case definition.TLSModeRequire, definition.TLSModeDisabled:
+	default:
+		errs = append(errs, field.NotSupported(tlsPath.Child("mode"), tls.Mode, []definition.TLSMode{
+			definition.TLSModeRequire, definition.TLSModeDisabled,
 		}))
 	}
-	if tls.Issuer != nil && tls.CertificateSecretName != "" {
-		errs = append(errs, field.Forbidden(path.Child("issuer"), "use either an issuer or a certificate Secret, not both"))
+	if tls.Issuer != nil {
+		if !slices.Contains([]definition.IssuerKind{definition.IssuerKindIssuer, definition.IssuerKindClusterIssuer}, tls.Issuer.Kind) {
+			errs = append(errs, field.NotSupported(tlsPath.Child("issuer", "kind"), tls.Issuer.Kind, []definition.IssuerKind{
+				definition.IssuerKindIssuer, definition.IssuerKindClusterIssuer,
+			}))
+		}
+		if tls.Issuer.Group != certManagerGroup {
+			errs = append(errs, field.Invalid(tlsPath.Child("issuer", "group"), tls.Issuer.Group,
+				"only cert-manager.io issuers are supported: the Neo4j operator's issuerRef has no group"))
+		}
 	}
-	if tls.Mode == definition.TLSModeDisabled && in.GetTopologyType() == common.TopologyCluster {
-		errs = append(errs, field.Forbidden(path.Child("mode"), "Cluster requires TLS so the operator can use verified admin Bolt"))
+	if tls.Issuer != nil && tls.CertificateSecretName != "" {
+		errs = append(errs, field.Forbidden(tlsPath.Child("issuer"), "use either an issuer or a certificate Secret, not both"))
+	}
+	if len(tls.AdditionalNames) > 0 && tls.CertificateSecretName != "" {
+		errs = append(errs, field.Forbidden(tlsPath.Child("additionalNames"),
+			"the certificate Secret carries its own names; add them to its certificate"))
+	}
+	if !tlsEnabled(tls) {
+		if in.GetTopologyType() == common.TopologyCluster {
+			errs = append(errs, field.Forbidden(tlsPath.Child("mode"), "Cluster requires TLS so the operator can use verified admin Bolt"))
+		}
+		if tls.Issuer != nil || tls.CertificateSecretName != "" || len(tls.AdditionalNames) > 0 {
+			errs = append(errs, field.Forbidden(tlsPath, "certificate settings need TLS; remove them or set mode to requireTLS"))
+		}
+	}
+	errs = append(errs, validateAdditionalNames(tls.AdditionalNames)...)
+	return errs
+}
+
+// validateAdditionalNames accepts DNS names, including wildcards such as
+// *.example.com, and rejects IP addresses: the operator only adds DNS names
+// to the certificates.
+func validateAdditionalNames(names []string) field.ErrorList {
+	var errs field.ErrorList
+	seen := map[string]bool{}
+	for i, name := range names {
+		path := tlsPath.Child("additionalNames").Index(i)
+		if net.ParseIP(name) != nil {
+			errs = append(errs, field.Invalid(path, name, "must be a DNS name, not an IP address"))
+			continue
+		}
+		if msgs := validation.IsDNS1123Subdomain(strings.TrimPrefix(name, "*.")); len(msgs) > 0 {
+			for _, msg := range msgs {
+				errs = append(errs, field.Invalid(path, name, msg))
+			}
+			continue
+		}
+		key := name
+		if seen[key] {
+			errs = append(errs, field.Duplicate(path, name))
+		}
+		seen[key] = true
 	}
 	return errs
+}
+
+// validateTLSTransition allows turning TLS on later but never off, and keeps
+// the certificate source while TLS is on.
+func validateTLSTransition(oldParams, params definition.Parameters) field.ErrorList {
+	oldTLS, newTLS := normalizeTLS(oldParams), normalizeTLS(params)
+	if !tlsEnabled(oldTLS) {
+		return nil
+	}
+	if !tlsEnabled(newTLS) {
+		return field.ErrorList{field.Forbidden(tlsPath.Child("mode"), "TLS cannot be turned off on an existing instance")}
+	}
+	if certificateSource(oldTLS) != certificateSource(newTLS) {
+		return field.ErrorList{field.Forbidden(tlsPath, "the certificate source (issuer or certificateSecretName) cannot change while TLS is on")}
+	}
+	return nil
+}
+
+func certificateSource(tls definition.TLSParameters) string {
+	switch {
+	case tls.CertificateSecretName != "":
+		return "secret/" + tls.CertificateSecretName
+	case tls.Issuer != nil:
+		return "issuer/" + tls.Issuer.Group + "/" + string(tls.Issuer.Kind) + "/" + tls.Issuer.Name
+	}
+	return "managed"
 }
 
 func validateTLSReferences(c *controller.Context) (field.ErrorList, error) {
@@ -207,7 +352,7 @@ func validateTLSReferences(c *controller.Context) (field.ErrorList, error) {
 	if err != nil {
 		return nil, err
 	}
-	path := field.NewPath("spec", "parameters", "tls")
+	path := tlsPath
 	if tls.CertificateSecretName != "" {
 		secret := &corev1.Secret{}
 		if err := c.Get(secret, tls.CertificateSecretName); err != nil {
