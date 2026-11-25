@@ -259,8 +259,8 @@ Rules:
 
 - `preferTLS` is not offered: the Neo4j operator always sets `server.bolt.tls_level=REQUIRED`
   once Bolt has a certificate.
-- TLS can be turned on later on a Standalone, never off. The certificate source can't change
-  while TLS is on.
+- TLS can be turned on later on a Standalone, never off. Turning it on restarts the pod right
+  away. The certificate source can't change while TLS is on.
 - `additionalNames` are DNS names (wildcards allowed, no IPs) and can't be combined with
   `certificateSecretName`, whose certificate carries its own names. Changing them on a running
   instance reissues the certificates and restarts the pods, so it waits for maintenance
@@ -317,7 +317,8 @@ with full verification (`neo4j+s://graph.company.com:7687`).
 
 `mode: enabled` is replaced by `requireTLS` (the same behaviour). `issuer` and
 `certificateSecretName` keep their meaning. An Instance that still sets `mode: enabled` goes
-`ValidationFailed` after the upgrade; its Neo4j keeps running unchanged until you migrate it:
+`ValidationFailed` after the upgrade (`spec.parameters.tls.mode: Unsupported value: "enabled"`);
+its Neo4j keeps running unchanged until you migrate it:
 
 ```sh
 kubectl patch instance <name> -n <namespace> --type=merge \

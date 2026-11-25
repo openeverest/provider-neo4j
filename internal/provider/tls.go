@@ -259,9 +259,6 @@ func validateTLS(in *corev1alpha1.Instance, params definition.Parameters) field.
 	tls := normalizeTLS(params)
 	switch tls.Mode {
 	case definition.TLSModeRequire, definition.TLSModeDisabled:
-	case "enabled":
-		errs = append(errs, field.Invalid(tlsPath.Child("mode"), tls.Mode,
-			"enabled was replaced by requireTLS; see the README on migrating TLS settings"))
 	default:
 		errs = append(errs, field.NotSupported(tlsPath.Child("mode"), tls.Mode, []definition.TLSMode{
 			definition.TLSModeRequire, definition.TLSModeDisabled,

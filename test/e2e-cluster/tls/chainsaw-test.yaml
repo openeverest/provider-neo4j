@@ -88,7 +88,7 @@ spec:
                 "$(kubectl -n $NAMESPACE get secret company-ca -o jsonpath='{.data.ca\.crt}')"
               password=$(kubectl -n $NAMESPACE get secret "$secret" -o jsonpath='{.data.password}' | base64 -d)
               # Bolt without TLS is refused.
-              if kubectl -n $NAMESPACE exec graph-tls-primary-0 -- cypher-shell -a bolt://localhost:7687 \
+              if kubectl -n $NAMESPACE exec graph-tls-server-0 -- cypher-shell -a bolt://localhost:7687 \
                   -u neo4j -p "$password" "RETURN 1" >/dev/null 2>&1; then
                 echo "FAIL: Bolt without TLS was accepted"; exit 1
               fi
@@ -145,16 +145,16 @@ spec:
               set -eu
               token=$(kubectl -n $NAMESPACE get instance graph-tls \
                 -o jsonpath='{.status.pendingMaintenance[0].approvalToken}')
-              pod=$(kubectl -n $NAMESPACE get pod graph-tls-primary-0 -o jsonpath='{.metadata.uid}')
+              pod=$(kubectl -n $NAMESPACE get pod graph-tls-server-0 -o jsonpath='{.metadata.uid}')
               kubectl -n $NAMESPACE patch instance graph-tls --type=merge \
                 -p "{\"spec\":{\"maintenance\":{\"approved\":\"$token\"}}}"
               i=0
-              until [ "$(kubectl -n $NAMESPACE get pod graph-tls-primary-0 -o jsonpath='{.metadata.uid}' 2>/dev/null)" != "$pod" ]; do
+              until [ "$(kubectl -n $NAMESPACE get pod graph-tls-server-0 -o jsonpath='{.metadata.uid}' 2>/dev/null)" != "$pod" ]; do
                 i=$((i + 1))
                 [ "$i" -lt 60 ] || { echo "FAIL: pod not restarted"; exit 1; }
                 sleep 5
               done
-              kubectl -n $NAMESPACE wait --for=condition=Ready pod/graph-tls-primary-0 --timeout=6m
+              kubectl -n $NAMESPACE wait --for=condition=Ready pod/graph-tls-server-0 --timeout=6m
         - assert:
             timeout: 5m
             resource:
