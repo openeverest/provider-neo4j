@@ -2,6 +2,7 @@ package provider
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	neo4jv1 "github.com/neo4j/neo4j-kubernetes-operator/src/api/v1"
@@ -88,6 +89,13 @@ func buildNeo4j(c *controller.Context) (*neo4jv1.Neo4j, error) {
 	tls, err := buildTLS(c)
 	if err != nil {
 		return nil, err
+	}
+	if !tls.Enabled {
+		// The operator refuses an HTTPS listener without TLS.
+		connectivity.Listeners.HTTPS = nil
+		connectivity.Service.Expose = slices.DeleteFunc(connectivity.Service.Expose, func(name string) bool {
+			return name == "https"
+		})
 	}
 	metrics, err := metricsRequired(c)
 	if err != nil {

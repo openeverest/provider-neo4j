@@ -201,6 +201,19 @@ func TestBuildTLSDisabled(t *testing.T) {
 	assert.Nil(t, got.CertManager)
 }
 
+func TestBuildNeo4jWithoutTLSDropsHTTPS(t *testing.T) {
+	t.Parallel()
+	got, err := buildNeo4j(testContext(t, tlsInstance(t, common.TopologyStandalone, map[string]any{"mode": "disabled"})))
+	require.NoError(t, err)
+	assert.Nil(t, got.Spec.Connectivity.Listeners.HTTPS)
+	assert.Equal(t, []string{"bolt", "http"}, got.Spec.Connectivity.Service.Expose)
+
+	got, err = buildNeo4j(testContext(t, tlsInstance(t, common.TopologyStandalone, nil)))
+	require.NoError(t, err)
+	assert.Equal(t, int32Ptr(7473), got.Spec.Connectivity.Listeners.HTTPS)
+	assert.Equal(t, []string{"bolt", "http", "https"}, got.Spec.Connectivity.Service.Expose)
+}
+
 func TestApproveAdditionalNames(t *testing.T) {
 	t.Parallel()
 	names := []string{"graph.example.com"}
