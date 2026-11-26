@@ -12,9 +12,13 @@ IMG ?= ghcr.io/openeverest/provider-neo4j-dev:latest
 # Image URL for OpenEverest controller used in integration tests (must be pre-built).
 OPENEVEREST_CONTROLLER_IMG ?= ghcr.io/openeverest/openeverest-controller-dev:0.0.0
 
-# Split IMG into repository and tag for Helm values
-_IMG_REPO = $(firstword $(subst :, ,$(IMG)))
+# Split IMG into repository and tag for Helm values; the repository may carry a
+# registry port.
 _IMG_TAG  = $(lastword $(subst :, ,$(IMG)))
+_IMG_REPO = $(patsubst %:$(_IMG_TAG),%,$(IMG))
+
+# k3d imports IMG into the nodes; set Always to pull it from a registry.
+E2E_IMAGE_PULL_POLICY ?= Never
 
 # k3d cluster name (must match dev/k3d_config.yaml metadata.name)
 K3D_CLUSTER_NAME ?= provider-neo4j-test
@@ -168,7 +172,11 @@ test-integration-monitoring: ## Run monitoring integration tests.
 # deploy-provider-e2e); the integration suites above run with it scaled to 0.
 .PHONY: test-e2e-cluster
 test-e2e-cluster: ## Run all e2e-cluster tests (needs a running Neo4j operator and cert-manager).
-	. ./test/vars.sh && chainsaw test --config ./test/e2e-cluster/.chainsaw.yaml ./test/e2e-cluster
+	. ./test/vars.sh && chainsaw test --config ./test/e2e-cluster/.chainsaw.yaml \
+		./test/e2e-cluster/standalone ./test/e2e-cluster/tls ./test/e2e-cluster/backup-restore ./test/e2e-cluster/cluster \
+		./test/e2e-cluster/credentials
+	@# The upgrade suite reinstalls the provider, so it runs once the others are done.
+	$(MAKE) test-e2e-cluster-upgrade
 
 .PHONY: test-e2e-cluster-standalone
 test-e2e-cluster-standalone: ## Run the standalone e2e-cluster test (TLS, version upgrade, LoadBalancer).
@@ -181,6 +189,10 @@ test-e2e-cluster-tls: ## Run the TLS e2e-cluster test (bring your own CA, additi
 .PHONY: test-e2e-cluster-backup-restore
 test-e2e-cluster-backup-restore: ## Run the backup, restore and data-source e2e-cluster test.
 	. ./test/vars.sh && chainsaw test --config ./test/e2e-cluster/.chainsaw.yaml ./test/e2e-cluster/backup-restore
+
+.PHONY: test-e2e-cluster-upgrade
+test-e2e-cluster-upgrade: ## Run the provider upgrade e2e-cluster test (maintenance gating; installs the previous release).
+	. ./test/vars.sh && chainsaw test --config ./test/e2e-cluster/.chainsaw.yaml ./test/e2e-cluster/upgrade
 
 .PHONY: test-e2e-cluster-cluster
 test-e2e-cluster-cluster: ## Run the Cluster topology e2e-cluster test.
@@ -231,7 +243,7 @@ deploy-provider-e2e: helm-deps ## Deploy the provider with a running Neo4j opera
 		--skip-crds \
 		--set image.repository=$(_IMG_REPO) \
 		--set image.tag=$(_IMG_TAG) \
-		--set image.pullPolicy=Never \
+		--set image.pullPolicy=$(E2E_IMAGE_PULL_POLICY) \
 		--wait --timeout 5m
 
 ##@ Local Development Cluster

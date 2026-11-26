@@ -1,0 +1,41 @@
+# A cluster as provider 0.1.0 left it: no anti-affinity, no release
+# annotation. The new release's anti-affinity waits for approval.
+apiVersion: core.openeverest.io/v1alpha1
+kind: Instance
+metadata:
+  name: graph
+status:
+  # Guard against null: an expression error fails the assert at once instead
+  # of retrying until the provider has written the status.
+  (length(pendingMaintenance || `[]`)): 1
+  (starts_with(pendingMaintenance[0].approvalToken || '', 'upgrade-to-')): true
+  pendingMaintenance:
+    - severity: RollingRestart
+  (conditions[?type == 'MaintenancePending'].status | [0]): "True"
+---
+apiVersion: neo4j.com/v1
+kind: Neo4j
+metadata:
+  name: graph
+  annotations:
+    neo4j.openeverest.io/provider-release: 0.0.1
+spec:
+  (scheduling == null): true
+status:
+  serverSummary:
+    servers: 3
+    ready: 3
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: graph-primary
+spec:
+  template:
+    spec:
+      (affinity.podAntiAffinity == null): true
+status:
+  replicas: 3
+  readyReplicas: 3
+  updatedReplicas: 3
+  (currentRevision == updateRevision): true

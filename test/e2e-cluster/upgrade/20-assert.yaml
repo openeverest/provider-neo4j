@@ -1,0 +1,9 @@
+# The upgraded provider takes over the Neo4j without a pending action: the
+# release changes nothing for this Instance.
+apiVersion: core.openeverest.io/v1alpha1
+kind: Instance
+metadata:
+  name: graph
+status:
+  (pendingMaintenance == null): true
+  (conditions[?type == 'Ready'].status | [0]): "True"

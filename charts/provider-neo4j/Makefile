@@ -10,6 +10,8 @@ CHART_VERSION ?= $(VERSION)
 prepare-chart:
 	yq eval -i '.version = "$(CHART_VERSION)"' Chart.yaml
 	yq eval -i '.appVersion = "$(VERSION)"' Chart.yaml
+	# make generate copies appVersion here; the provider keys maintenance on it.
+	yq eval -i '.spec.release.version = "$(VERSION)"' generated/provider-spec.yaml
 	yq eval -i '.image.repository = "$(IMAGE_PREFIX)/$(PROVIDER_IMAGE_NAME)"' values.yaml
 	yq eval -i '.image.tag = "$(VERSION)"' values.yaml
 	$(MAKE) deps
