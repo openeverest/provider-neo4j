@@ -173,7 +173,8 @@ test-integration-monitoring: ## Run monitoring integration tests.
 .PHONY: test-e2e-cluster
 test-e2e-cluster: ## Run all e2e-cluster tests (needs a running Neo4j operator and cert-manager).
 	. ./test/vars.sh && chainsaw test --config ./test/e2e-cluster/.chainsaw.yaml \
-		./test/e2e-cluster/standalone ./test/e2e-cluster/tls ./test/e2e-cluster/backup-restore ./test/e2e-cluster/cluster
+		./test/e2e-cluster/standalone ./test/e2e-cluster/tls ./test/e2e-cluster/backup-restore ./test/e2e-cluster/cluster \
+		./test/e2e-cluster/credentials
 	@# The upgrade suite reinstalls the provider, so it runs once the others are done.
 	$(MAKE) test-e2e-cluster-upgrade
 
@@ -196,6 +197,10 @@ test-e2e-cluster-upgrade: ## Run the provider upgrade e2e-cluster test (maintena
 .PHONY: test-e2e-cluster-cluster
 test-e2e-cluster-cluster: ## Run the Cluster topology e2e-cluster test.
 	. ./test/vars.sh && chainsaw test --config ./test/e2e-cluster/.chainsaw.yaml ./test/e2e-cluster/cluster
+
+.PHONY: test-e2e-cluster-credentials
+test-e2e-cluster-credentials: ## Run the credentials e2e-cluster test (changing the password in the user Secret).
+	. ./test/vars.sh && chainsaw test --config ./test/e2e-cluster/.chainsaw.yaml ./test/e2e-cluster/credentials
 
 .PHONY: load-image
 load-image: ## Import the provider image (IMG) into the k3d cluster.

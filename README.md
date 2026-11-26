@@ -192,6 +192,14 @@ ALTER DATABASE neo4j SET TOPOLOGY 3 PRIMARIES 2 SECONDARIES
 Run it again after adding members to a pool; on a scale-in, the operator narrows the topology
 itself. Databases you create later get the pools by default.
 
+### Scaling primaries
+
+`spec.components.engine.replicas` scales the primaries between three and more, in odd
+numbers. A cluster created with one primary keeps one: the operator cannot grow its system
+database to several primaries, nor shrink a multi-primary one to a single primary, so
+admission refuses both. To move between them, create a new Instance with the target count
+and restore a backup into it.
+
 ### High availability
 
 A Cluster gets two defaults:
@@ -238,6 +246,31 @@ components:
 The UI takes CPU in cores, fractions included (`0.5`), and memory and disk in Gi, and writes
 them as Kubernetes quantity strings; a value it did not change keeps its stored form (for
 example `2048Mi`). Disk size cannot be decreased.
+
+### Credentials
+
+Without `spec.userSecretRef`, the Neo4j operator generates the password of user `neo4j`. To
+choose it, reference a Secret with `NEO4J_AUTH` set to `neo4j/<password>`:
+
+```bash
+kubectl create secret generic graph-user --from-literal=NEO4J_AUTH='neo4j/a-strong-password'
+kubectl label secret graph-user openeverest.io/provider=neo4j openeverest.io/definition=user
+```
+
+```yaml
+spec:
+  userSecretRef:
+    name: graph-user
+```
+
+To change the password, update the Secret. Once Neo4j runs, the provider sets the new password
+in Neo4j (`ALTER CURRENT USER SET PASSWORD`). Until it succeeds, the Instance is not Ready and
+the connection Secret keeps the old password, so clients keep working. If Neo4j refuses the
+password, for example because it is shorter than 8 characters, the Instance reports the error.
+
+The Neo4j image reads `NEO4J_AUTH` on every start and only sets a password for user `neo4j`,
+so the user cannot change, and the password must not contain `/`, start with `-` or be
+`neo4j`.
 
 ### TLS
 
@@ -453,7 +486,8 @@ make test-e2e-cluster                 # every suite, or one of:
 make test-e2e-cluster-standalone      # default TLS, version upgrade, LoadBalancer
 make test-e2e-cluster-tls             # issuer, additionalNames maintenance, TLS rules
 make test-e2e-cluster-backup-restore  # backup, in-place restore, seeding a new Instance
-make test-e2e-cluster-cluster         # three primaries, adding a read pool
+make test-e2e-cluster-cluster         # three primaries, adding a read pool, primary-count rules
+make test-e2e-cluster-credentials     # changing the password in the user Secret
 make test-e2e-cluster-upgrade         # provider upgrade waits for maintenance approval
 ```
 

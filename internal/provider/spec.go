@@ -7,6 +7,7 @@ import (
 
 	neo4jv1 "github.com/neo4j/neo4j-kubernetes-operator/src/api/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/util/intstr"
 
 	corev1alpha1 "github.com/openeverest/openeverest/v2/api/core/v1alpha1"
@@ -56,6 +57,11 @@ func buildNeo4j(c *controller.Context) (*neo4jv1.Neo4j, error) {
 		}
 	}
 
+	live, err := liveNeo4j(c)
+	if err != nil {
+		return nil, err
+	}
+
 	mode := neo4jv1.TopologyModeStandalone
 	topology := neo4jv1.TopologySpec{Mode: mode}
 	if in.GetTopologyType() == common.TopologyCluster {
@@ -66,7 +72,13 @@ func buildNeo4j(c *controller.Context) (*neo4jv1.Neo4j, error) {
 		}
 		applyPoolParameters(c, &topology.Primaries.Plugins, &topology.Primaries.Resources, engine)
 		topology.Secondaries = buildSecondaryPools(c)
-		topology.MinimumMembers = minimumMembers(topology.Primaries.Members)
+		// The operator reads minimumMembers at bootstrap only and refuses to
+		// change it, so a Neo4j that exists keeps its own value.
+		if live != nil {
+			topology.MinimumMembers = live.Spec.Topology.MinimumMembers
+		} else {
+			topology.MinimumMembers = minimumMembers(topology.Primaries.Members)
+		}
 		topology.DefaultPrimariesCount = minimumMembers(topology.Primaries.Members)
 	}
 
@@ -293,6 +305,18 @@ func memberCount(topology neo4jv1.TopologySpec) int32 {
 		}
 	}
 	return members
+}
+
+// liveNeo4j returns the Neo4j this Instance owns, or nil before it exists.
+func liveNeo4j(c *controller.Context) (*neo4jv1.Neo4j, error) {
+	live := &neo4jv1.Neo4j{}
+	if err := c.Get(live, c.Name()); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("get Neo4j: %w", err)
+	}
+	return live, nil
 }
 
 func buildScheduling(engine corev1alpha1.ComponentSpec) *neo4jv1.SchedulingSpec {

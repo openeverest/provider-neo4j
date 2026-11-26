@@ -237,10 +237,32 @@ func validateTransitions(in, old *corev1alpha1.Instance, params definition.Param
 		errs = append(errs, field.Forbidden(field.NewPath("spec", "topology", "type"),
 			"Neo4j topology mode cannot change after creation"))
 	}
+	errs = append(errs, validatePrimariesTransition(in, old)...)
 	oldParams := definition.Parameters{}
 	_ = decodeRaw(old.Spec.Parameters, &oldParams)
 	errs = append(errs, validateTLSTransition(oldParams, params)...)
 	return errs
+}
+
+// validatePrimariesTransition rejects what the operator cannot do: grow the
+// system database from a single primary, or shrink a multi-primary one to a
+// single primary. Between three primaries and more, it scales either way.
+func validatePrimariesTransition(in, old *corev1alpha1.Instance) field.ErrorList {
+	if in.GetTopologyType() != common.TopologyCluster || old.GetTopologyType() != common.TopologyCluster {
+		return nil
+	}
+	from := replicaCount(old.Spec.Components[common.ComponentEngine], 3)
+	to := replicaCount(in.Spec.Components[common.ComponentEngine], 3)
+	if (from == 1) == (to == 1) {
+		return nil
+	}
+	path := field.NewPath("spec", "components").Key(common.ComponentEngine).Child("replicas")
+	if from == 1 {
+		return field.ErrorList{field.Forbidden(path,
+			"a cluster created with one primary cannot grow to more primaries; create a new cluster with the target count and restore a backup into it")}
+	}
+	return field.ErrorList{field.Forbidden(path,
+		"a cluster of several primaries cannot shrink to one primary; keep at least three")}
 }
 
 func validateUserSecret(c *controller.Context) (field.ErrorList, error) {
@@ -263,11 +285,28 @@ func validateUserSecret(c *controller.Context) (field.ErrorList, error) {
 	if err := controller.ValidateSecretSchema(secret, spec); err != nil {
 		return field.ErrorList{field.Invalid(path, ref.Name, err.Error())}, nil
 	}
-	auth := string(secret.Data["NEO4J_AUTH"])
-	user, password, ok := strings.Cut(auth, "/")
-	if !ok || user == "" || password == "" {
-		return field.ErrorList{field.Invalid(path, ref.Name,
-			"NEO4J_AUTH must contain a non-empty username/password pair")}, nil
+	if msg := invalidAuth(string(secret.Data[authKey])); msg != "" {
+		return field.ErrorList{field.Invalid(path, ref.Name, msg)}, nil
 	}
 	return nil, nil
+}
+
+// invalidAuth says why the Neo4j image cannot start with a NEO4J_AUTH value,
+// which it reads on every start. The provider sets a changed password with
+// the same user, so the user cannot change either.
+func invalidAuth(auth string) string {
+	user, password, ok := strings.Cut(auth, "/")
+	switch {
+	case !ok || user == "" || password == "":
+		return authKey + " must contain a non-empty username/password pair"
+	case user != authUser:
+		return fmt.Sprintf("%s must name user %q, the only user the Neo4j image sets a password for", authKey, authUser)
+	case strings.Contains(password, "/"):
+		return "the password in " + authKey + " must not contain \"/\""
+	case strings.HasPrefix(password, "-"):
+		return "the password in " + authKey + " must not start with \"-\""
+	case password == authUser:
+		return "the password in " + authKey + " must not be \"neo4j\""
+	}
+	return ""
 }
