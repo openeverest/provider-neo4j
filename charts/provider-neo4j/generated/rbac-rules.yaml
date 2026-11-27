@@ -93,6 +93,13 @@
     - update
     - watch
 - apiGroups:
+    - backup.openeverest.io
+  resources:
+    - backups/finalizers
+    - restores/finalizers
+  verbs:
+    - update
+- apiGroups:
     - cert-manager.io
   resources:
     - certificates
